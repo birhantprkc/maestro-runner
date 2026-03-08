@@ -73,6 +73,9 @@ type Driver struct {
 	info   *core.PlatformInfo
 	device ShellExecutor // for ADB commands (fallback)
 
+	// Parent context for element-finding operations (nil = context.Background())
+	ctx context.Context
+
 	// Timeouts (0 = use defaults)
 	findTimeout         int // ms, for required elements
 	optionalFindTimeout int // ms, for optional elements
@@ -118,6 +121,20 @@ func (d *Driver) screenSize() (int, int, error) {
 		return d.info.ScreenWidth, d.info.ScreenHeight, nil
 	}
 	return 0, 0, fmt.Errorf("screen dimensions not available")
+}
+
+// SetContext sets the parent context for element-finding operations.
+func (d *Driver) SetContext(ctx context.Context) {
+	d.ctx = ctx
+}
+
+// parentContext returns the parent context for element-finding operations.
+// Returns context.Background() if no context was set.
+func (d *Driver) parentContext() context.Context {
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
 }
 
 // SetFindTimeout sets the timeout for finding required elements.
@@ -315,7 +332,7 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 	// For relative selectors (below, above, etc.), use page source which handles them correctly
 	if sel.HasRelativeSelector() {
 		timeout := d.calculateTimeout(optional, stepTimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 		return d.findElementRelativeWithContext(ctx, sel)
 	}
@@ -334,7 +351,7 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 	// Non-clickable strategies first, then clickable fallback
 	if sel.Text != "" {
 		timeout := d.calculateTimeout(optional, stepTimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 		return d.findElementDirectWithContext(ctx, sel)
 	}
@@ -429,7 +446,7 @@ func buildClickableOnlyStrategies(sel flow.Selector) ([]LocatorStrategy, error) 
 // findElementWithOptions is the internal implementation with clickable preference option.
 func (d *Driver) findElementWithOptions(sel flow.Selector, optional bool, stepTimeoutMs int, preferClickable bool, fastMode bool) (*uiautomator2.Element, *core.ElementInfo, error) {
 	timeout := d.calculateTimeout(optional, stepTimeoutMs)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 	defer cancel()
 
 	return d.findElementWithContext(ctx, sel, preferClickable, fastMode)

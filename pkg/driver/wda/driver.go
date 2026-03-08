@@ -17,6 +17,9 @@ type Driver struct {
 	info   *core.PlatformInfo
 	udid   string // Device UDID for simctl commands
 
+	// Parent context for element-finding operations (nil = context.Background())
+	ctx context.Context
+
 	// App file path for clearState (uninstall+reinstall)
 	appFile string
 
@@ -46,6 +49,19 @@ func (d *Driver) screenSize() (int, int, error) {
 		return d.info.ScreenWidth, d.info.ScreenHeight, nil
 	}
 	return 0, 0, fmt.Errorf("screen dimensions not available")
+}
+
+// SetContext sets the parent context for element-finding operations.
+func (d *Driver) SetContext(ctx context.Context) {
+	d.ctx = ctx
+}
+
+// parentContext returns the parent context for element-finding operations.
+func (d *Driver) parentContext() context.Context {
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
 }
 
 // SetFindTimeout sets the timeout for finding required elements.
@@ -239,7 +255,7 @@ func (d *Driver) GetPlatformInfo() *core.PlatformInfo {
 // findElement finds an element using a selector with polling.
 func (d *Driver) findElement(sel flow.Selector, optional bool, stepTimeoutMs int) (*core.ElementInfo, error) {
 	timeout := d.calculateTimeout(optional, stepTimeoutMs)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 	defer cancel()
 
 	return d.findElementWithContext(ctx, sel)
@@ -288,7 +304,7 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 	// For relative selectors, use page source which handles them correctly
 	if sel.HasRelativeSelector() {
 		timeout := d.calculateTimeout(optional, stepTimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 		return d.findElementRelativeWithContext(ctx, sel)
 	}
@@ -307,7 +323,7 @@ func (d *Driver) findElementForTap(sel flow.Selector, optional bool, stepTimeout
 	// For text-based selectors, use smart fallback strategy
 	if sel.Text != "" {
 		timeout := d.calculateTimeout(optional, stepTimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 		return d.findElementForTapWithContext(ctx, sel)
 	}

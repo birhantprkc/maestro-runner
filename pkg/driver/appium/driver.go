@@ -21,6 +21,7 @@ type Driver struct {
 	capabilities              map[string]interface{} // stored for session recreation (deep copy of original)
 	platform                  string                 // detected from page source or capabilities
 	appID                     string                 // current app ID
+	ctx                       context.Context        // parent context for element-finding operations (nil = context.Background())
 	findTimeout               time.Duration          // configurable timeout for finding elements
 	currentWaitForIdleTimeout int                    // track current value to skip redundant calls
 	waitForIdleTimeoutSet     bool                   // whether waitForIdleTimeout has been set
@@ -218,6 +219,19 @@ func (d *Driver) GetPlatformInfo() *core.PlatformInfo {
 	}
 }
 
+// SetContext sets the parent context for element-finding operations.
+func (d *Driver) SetContext(ctx context.Context) {
+	d.ctx = ctx
+}
+
+// parentContext returns the parent context for element-finding operations.
+func (d *Driver) parentContext() context.Context {
+	if d.ctx != nil {
+		return d.ctx
+	}
+	return context.Background()
+}
+
 // SetFindTimeout implements core.Driver.
 // Sets the default timeout (in ms) for finding elements.
 func (d *Driver) SetFindTimeout(ms int) {
@@ -275,6 +289,10 @@ func (d *Driver) findElement(sel flow.Selector, timeout time.Duration) (*core.El
 	deadline := time.Now().Add(timeout)
 
 	for {
+		if err := d.parentContext().Err(); err != nil {
+			return nil, fmt.Errorf("element '%s' not found: %w", sel.Describe(), err)
+		}
+
 		info, err := d.findElementDirect(sel)
 		if err == nil && info != nil {
 			return info, nil
@@ -444,6 +462,10 @@ func (d *Driver) findElementByPageSource(sel flow.Selector) (*core.ElementInfo, 
 func (d *Driver) findElementByPageSourceWithPolling(sel flow.Selector, timeout time.Duration) (*core.ElementInfo, error) {
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := d.parentContext().Err(); err != nil {
+			return nil, fmt.Errorf("element '%s' not found: %w", sel.Describe(), err)
+		}
+
 		info, err := d.findElementByPageSource(sel)
 		if err == nil {
 			return info, nil
@@ -480,6 +502,10 @@ func (d *Driver) findElementForTap(sel flow.Selector, timeout time.Duration) (*c
 	deadline := time.Now().Add(timeout)
 
 	for {
+		if err := d.parentContext().Err(); err != nil {
+			return nil, fmt.Errorf("element '%s' not found: %w", sel.Describe(), err)
+		}
+
 		var info *core.ElementInfo
 		var err error
 
@@ -571,7 +597,7 @@ func (d *Driver) findElementForTapIOS(sel flow.Selector) (*core.ElementInfo, err
 // findElementRelative handles relative selectors (below, above, etc.)
 // Deprecated: Use findElementRelativeWithContext for new code.
 func (d *Driver) findElementRelative(sel flow.Selector, timeout time.Duration) (*core.ElementInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 	defer cancel()
 	return d.findElementRelativeWithContext(ctx, sel)
 }

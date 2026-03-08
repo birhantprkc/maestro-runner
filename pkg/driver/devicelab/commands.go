@@ -39,7 +39,7 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 			return errorResult(err, fmt.Sprintf("Failed to build selectors: %v", err))
 		}
 		timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 		defer cancel()
 
 		var lastErr error
@@ -1376,7 +1376,7 @@ func (d *Driver) waitUntil(step *flow.WaitUntilStep) *core.CommandResult {
 		timeout = time.Duration(step.TimeoutMs) * time.Millisecond
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
 	defer cancel()
 
 	var selector *flow.Selector
