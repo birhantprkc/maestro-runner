@@ -74,11 +74,15 @@ func WrapIOS(inner core.Driver, client *VMServiceClient, udid, appID string) cor
 // driver poll, we check if Flutter has found the element. This gives ~1s reaction time
 // to whichever side finds the element first.
 func (d *FlutterDriver) Execute(step flow.Step) *core.CommandResult {
-	// After launchApp, the app restarts — invalidate connection so we re-discover
+	// After launchApp, the app restarts — invalidate connection but only
+	// re-discover if the previous attempt succeeded (was actually Flutter).
+	// If the app was already determined to be non-Flutter, don't retry.
 	if _, ok := step.(*flow.LaunchAppStep); ok {
-		d.client.Close()
-		d.client = nil
-		d.attempted = false
+		if d.client != nil {
+			d.client.Close()
+			d.client = nil
+			d.attempted = false // Was Flutter before — re-discover after restart
+		}
 		return d.inner.Execute(step)
 	}
 
@@ -324,6 +328,8 @@ func (d *FlutterDriver) tryReconnect() error {
 
 // tryReconnectAndroid discovers and connects via Unix socket (adb forward).
 func (d *FlutterDriver) tryReconnectAndroid() error {
+	d.attempted = true // Mark as attempted even on failure to avoid retrying every step
+
 	if d.dev == nil {
 		return fmt.Errorf("no device executor")
 	}
@@ -342,13 +348,14 @@ func (d *FlutterDriver) tryReconnectAndroid() error {
 	}
 
 	d.client = client
-	d.attempted = true
 	logger.Info("Flutter VM service reconnected (Android)")
 	return nil
 }
 
 // tryReconnectIOS discovers and connects via direct TCP (simulator localhost).
 func (d *FlutterDriver) tryReconnectIOS() error {
+	d.attempted = true // Mark as attempted even on failure to avoid retrying every step
+
 	wsURL, err := DiscoverVMServiceIOS(d.udid)
 	if err != nil {
 		return fmt.Errorf("iOS discovery failed: %w", err)
@@ -363,7 +370,6 @@ func (d *FlutterDriver) tryReconnectIOS() error {
 	}
 
 	d.client = client
-	d.attempted = true
 	logger.Info("Flutter VM service reconnected (iOS)")
 	return nil
 }
