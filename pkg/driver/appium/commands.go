@@ -405,18 +405,29 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 }
 
 func (d *Driver) assertNotVisible(step *flow.AssertNotVisibleStep) *core.CommandResult {
-	timeout := time.Duration(step.TimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 2 * time.Second // Shorter timeout for not visible
+	// Poll with quick checks, waiting for element to disappear.
+	// Each check is a single lookup (no retries). If element is not found
+	// at any point, we pass immediately. If still visible at timeout, fail.
+	timeoutMs := step.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
 	}
 
-	// Element should NOT be found
-	_, err := d.findElement(step.Selector, timeout)
-	if err == nil {
-		return errorResult(fmt.Errorf("element is visible when it should not be"), fmt.Sprintf("Element should not be visible: %s", step.Selector.Describe()))
-	}
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	pollInterval := 500 * time.Millisecond
 
-	return successResult(fmt.Sprintf("Element is not visible: %s", step.Selector.Describe()), nil)
+	for {
+		info, err := d.findElementOnce(step.Selector)
+		if err != nil || info == nil {
+			return successResult(fmt.Sprintf("Element is not visible: %s", step.Selector.Describe()), nil)
+		}
+
+		if time.Now().After(deadline) {
+			return errorResult(fmt.Errorf("element is visible when it should not be"), fmt.Sprintf("Element should not be visible: %s", step.Selector.Describe()))
+		}
+
+		time.Sleep(pollInterval)
+	}
 }
 
 // Navigation

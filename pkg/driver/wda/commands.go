@@ -175,19 +175,29 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 }
 
 func (d *Driver) assertNotVisible(step *flow.AssertNotVisibleStep) *core.CommandResult {
-	// Poll to confirm element stays invisible
-	// Default 5s aligns closer to Maestro's optionalLookupTimeoutMs (7s)
+	// Poll with quick checks, waiting for element to disappear.
+	// Each check is a single lookup (no retries). If element is not found
+	// at any point, we pass immediately. If still visible at timeout, fail.
 	timeoutMs := step.TimeoutMs
 	if timeoutMs <= 0 {
 		timeoutMs = 5000
 	}
 
-	info, err := d.findElement(step.Selector, true, timeoutMs)
-	if err != nil || info == nil {
-		return successResult("Element is not visible", nil)
-	}
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	pollInterval := 500 * time.Millisecond
 
-	return errorResult(fmt.Errorf("element is visible"), fmt.Sprintf("Element should not be visible: %s", selectorDesc(step.Selector)))
+	for {
+		info, err := d.findElementOnce(step.Selector)
+		if err != nil || info == nil {
+			return successResult("Element is not visible", nil)
+		}
+
+		if time.Now().After(deadline) {
+			return errorResult(fmt.Errorf("element is visible"), fmt.Sprintf("Element should not be visible: %s", selectorDesc(step.Selector)))
+		}
+
+		time.Sleep(pollInterval)
+	}
 }
 
 // Input commands
