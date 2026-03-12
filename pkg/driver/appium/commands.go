@@ -175,23 +175,26 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 		direction = "up"
 	}
 
-	centerX := w / 2
-	centerY := h / 2
+	// Swipe coordinates match Maestro behavior:
+	// UP:    50%,50% → 50%,10%
+	// DOWN:  50%,20% → 50%,90%
+	// LEFT:  90%,50% → 10%,50%
+	// RIGHT: 10%,50% → 90%,50%
 	var startX, startY, endX, endY int
 
 	switch direction {
 	case "up":
-		startX, startY = centerX, h*2/3
-		endX, endY = centerX, h/3
+		startX, startY = w*50/100, h*50/100
+		endX, endY = w*50/100, h*10/100
 	case "down":
-		startX, startY = centerX, h/3
-		endX, endY = centerX, h*2/3
+		startX, startY = w*50/100, h*20/100
+		endX, endY = w*50/100, h*90/100
 	case "left":
-		startX, startY = w*2/3, centerY
-		endX, endY = w/3, centerY
+		startX, startY = w*90/100, h*50/100
+		endX, endY = w*10/100, h*50/100
 	case "right":
-		startX, startY = w/3, centerY
-		endX, endY = w*2/3, centerY
+		startX, startY = w*10/100, h*50/100
+		endX, endY = w*90/100, h*50/100
 	default:
 		return errorResult(fmt.Errorf("invalid direction: %s", direction), "")
 	}

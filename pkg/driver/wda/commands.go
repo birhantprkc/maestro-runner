@@ -507,26 +507,33 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 			}
 		}
 
-		centerX := areaX + areaW/2
-		centerY := areaY + areaH/2
-		swipeDistance := areaH / 3
-
+		// Swipe coordinates match Maestro iOS behavior:
+		// LEFT:  90%→10% of width,  centered vertically
+		// RIGHT: 10%→90% of width,  centered vertically
+		// UP:    centered horizontally, 90%→10% of height
+		// DOWN:  centered horizontally, 20%→90% of height
 		dir := strings.ToLower(step.Direction)
 		switch dir {
 		case "up":
-			fromX, fromY = centerX, centerY+swipeDistance/2
-			toX, toY = centerX, centerY-swipeDistance/2
+			fromX = areaX + areaW*0.5
+			fromY = areaY + areaH*0.9
+			toX = areaX + areaW*0.5
+			toY = areaY + areaH*0.1
 		case "down":
-			fromX, fromY = centerX, centerY-swipeDistance/2
-			toX, toY = centerX, centerY+swipeDistance/2
+			fromX = areaX + areaW*0.5
+			fromY = areaY + areaH*0.2
+			toX = areaX + areaW*0.5
+			toY = areaY + areaH*0.9
 		case "left":
-			swipeDistance = areaW / 3
-			fromX, fromY = centerX+swipeDistance/2, centerY
-			toX, toY = centerX-swipeDistance/2, centerY
+			fromX = areaX + areaW*0.9
+			fromY = areaY + areaH*0.5
+			toX = areaX + areaW*0.1
+			toY = areaY + areaH*0.5
 		case "right":
-			swipeDistance = areaW / 3
-			fromX, fromY = centerX-swipeDistance/2, centerY
-			toX, toY = centerX+swipeDistance/2, centerY
+			fromX = areaX + areaW*0.1
+			fromY = areaY + areaH*0.5
+			toX = areaX + areaW*0.9
+			toY = areaY + areaH*0.5
 		default:
 			return errorResult(fmt.Errorf("invalid direction: %s", step.Direction), "Invalid swipe direction")
 		}

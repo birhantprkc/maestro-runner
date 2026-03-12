@@ -564,35 +564,40 @@ func (d *Driver) findScrollableElement(timeoutMs int) (*core.ElementInfo, int) {
 	return nil, 0
 }
 
+// Swipe coordinates match Maestro Android behavior:
+// UP:    50%,50% → 50%,10%
+// DOWN:  50%,20% → 50%,90%
+// LEFT:  90%,50% → 10%,50%
+// RIGHT: 10%,50% → 90%,50%
 func (d *Driver) swipeWithMaestroCoordinates(direction string, width, height, durationMs int) *core.CommandResult {
 	var startX, startY, endX, endY int
 
 	switch direction {
 	case "up":
-		startX = width / 2
-		startY = height * 70 / 100
-		endX = width / 2
-		endY = height * 30 / 100
+		startX = width * 50 / 100
+		startY = height * 50 / 100
+		endX = width * 50 / 100
+		endY = height * 10 / 100
 	case "down":
-		startX = width / 2
-		startY = height * 30 / 100
-		endX = width / 2
-		endY = height * 70 / 100
+		startX = width * 50 / 100
+		startY = height * 20 / 100
+		endX = width * 50 / 100
+		endY = height * 90 / 100
 	case "left":
-		startX = width * 70 / 100
-		startY = height / 2
-		endX = width * 30 / 100
-		endY = height / 2
+		startX = width * 90 / 100
+		startY = height * 50 / 100
+		endX = width * 10 / 100
+		endY = height * 50 / 100
 	case "right":
-		startX = width * 30 / 100
-		startY = height / 2
-		endX = width * 70 / 100
-		endY = height / 2
+		startX = width * 10 / 100
+		startY = height * 50 / 100
+		endX = width * 90 / 100
+		endY = height * 50 / 100
 	default:
-		startX = width / 2
-		startY = height * 70 / 100
-		endX = width / 2
-		endY = height * 30 / 100
+		startX = width * 50 / 100
+		startY = height * 50 / 100
+		endX = width * 50 / 100
+		endY = height * 10 / 100
 	}
 
 	fmt.Printf("[swipe] Using screen coords: (%d,%d) → (%d,%d)\n", startX, startY, endX, endY)
