@@ -280,7 +280,18 @@ func (m *webViewManager) findWebOnce(sel flow.Selector) (core.Element, error) {
 	// Quick visibility gate — if WebView is hidden (tab switched, fragment detached),
 	// skip all CDP work and let the caller fall through to native immediately.
 	if !m.isWebViewVisible() {
-		return nil, fmt.Errorf("webview not visible")
+		// Visibility check can fail during in-WebView navigation (JS context destroyed).
+		// Try refreshing the page reference and check again before giving up on CDP.
+		if refreshErr := m.refreshPage(); refreshErr != nil {
+			if refreshErr == errConnectionDead {
+				m.cleanup()
+				return nil, errConnectionDead
+			}
+			return nil, fmt.Errorf("webview not visible")
+		}
+		if !m.isWebViewVisible() {
+			return nil, fmt.Errorf("webview not visible")
+		}
 	}
 
 	elem, err := m.findWebOnceInternal(sel)
@@ -300,15 +311,31 @@ func (m *webViewManager) findWebOnce(sel flow.Selector) (core.Element, error) {
 		return nil, err
 	}
 
-	page := m.rodPage()
-	if page != nil {
-		info, infoErr := page.Info()
-		if infoErr == nil {
-			logger.Debug("[webview] page after refresh: url=%s title=%s", info.URL, info.Title)
-		}
-	}
+	// Wait for page to be ready after refresh — handles in-WebView navigation
+	// where the page URL changed and the new DOM is still loading.
+	m.waitForPageReady()
 
 	return m.findWebOnceInternal(sel)
+}
+
+// waitForPageReady waits for document.readyState to be "complete" or "interactive".
+// Bounded to 2 seconds to avoid blocking the polling loop for too long.
+func (m *webViewManager) waitForPageReady() {
+	page := m.rodPage()
+	if page == nil {
+		return
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err := page.Timeout(500 * time.Millisecond).Eval(`() => document.readyState`)
+		if err == nil {
+			state := result.Value.Str()
+			if state == "complete" || state == "interactive" {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // cdpCallTimeout is the maximum time any single CDP find attempt can take.

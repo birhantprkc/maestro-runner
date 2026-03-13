@@ -349,10 +349,22 @@ func (d *Driver) eraseText(step *flow.EraseTextStep) *core.CommandResult {
 }
 
 func (d *Driver) hideKeyboard(_ *flow.HideKeyboardStep) *core.CommandResult {
-	if err := d.client.HideKeyboard(); err != nil {
-		return successResult("Hide keyboard (may not have been visible)", nil)
+	// Retry up to 3 times — the on-device agent tries KEYCODE_ESCAPE first
+	// (keyboard-only, no navigation side-effects), then falls back to KEYCODE_BACK.
+	for attempt := 0; attempt < 3; attempt++ {
+		d.client.HideKeyboard()
+
+		// Wait for keyboard to actually disappear (animation ~300ms).
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if !d.isKeyboardVisible() {
+				return successResult("Keyboard hidden", nil)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	return successResult("Keyboard hidden", nil)
+
+	return successResult("Hide keyboard (may not have been visible)", nil)
 }
 
 func (d *Driver) inputRandom(step *flow.InputRandomStep) *core.CommandResult {
