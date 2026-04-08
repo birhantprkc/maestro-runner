@@ -74,7 +74,10 @@ func (fr *FlowRunner) Run() FlowResult {
 	if appID := fr.flow.Config.EffectiveAppID(); appID != "" {
 		fr.script.SetVariable("APP_ID", appID)
 	}
-	fr.script.SetVariables(fr.flow.Config.Env)
+	// Expand flow config env values to support ${VAR || "default"} syntax
+	for k, v := range fr.flow.Config.Env {
+		fr.script.SetVariable(k, fr.script.ExpandVariables(v))
+	}
 
 	// Apply commandTimeout if specified - overrides driver's default find timeout
 	if fr.flow.Config.CommandTimeout > 0 {
