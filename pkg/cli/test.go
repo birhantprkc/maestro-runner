@@ -1439,6 +1439,12 @@ const (
 // Slow step threshold in milliseconds (5 seconds)
 const slowThresholdMs = 5000
 
+// appiumKeepaliveInterval is how often pre-created --parallel Appium sessions
+// are pinged to reset the server's newCommandTimeout while later sessions are
+// still being created (#124). 20s comfortably beats Appium's 60s default and
+// SauceLabs RDC's 90s ceiling with margin for slower farms.
+const appiumKeepaliveInterval = 20 * time.Second
+
 // colorsEnabled determines if ANSI colors should be used
 var colorsEnabled = true
 
@@ -2457,6 +2463,42 @@ func createAppiumWorkers(cfg *RunConfig, count int) ([]executor.DeviceWorker, []
 		}
 	}
 
+	// Sessions are created serially, but no flow runs until all N exist — so an
+	// early session idles for ~(N-1)×creation_time before its first command. On
+	// cloud farms that idle can exceed the server's newCommandTimeout and the
+	// session is reaped, failing the first flow with "invalid session id" (#124).
+	// Keep every already-created session warm with a lightweight ping on a
+	// ticker; stop once creation finishes and execution is about to begin.
+	var kaMu sync.Mutex
+	var kaDrivers []*appiumdriver.Driver
+	kaStop := make(chan struct{})
+	var kaDone sync.WaitGroup
+	kaDone.Add(1)
+	go func() {
+		defer kaDone.Done()
+		ticker := time.NewTicker(appiumKeepaliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-kaStop:
+				return
+			case <-ticker.C:
+				kaMu.Lock()
+				snapshot := append([]*appiumdriver.Driver(nil), kaDrivers...)
+				kaMu.Unlock()
+				for _, d := range snapshot {
+					if err := d.Keepalive(); err != nil {
+						logger.Debug("Appium keepalive ping failed for session %s: %v", d.SessionID(), err)
+					}
+				}
+			}
+		}
+	}()
+	defer func() {
+		close(kaStop)
+		kaDone.Wait()
+	}()
+
 	// Preserve the caller's Devices so we can swap in per-worker UDIDs and
 	// restore them at the end. When the user supplies len(Devices) >= count,
 	// we round-robin so each Appium session targets a distinct device. When
@@ -2482,10 +2524,14 @@ func createAppiumWorkers(cfg *RunConfig, count int) ([]executor.DeviceWorker, []
 			return nil, nil, fmt.Errorf("failed to create %s: %w", workerID, err)
 		}
 
-		// Extract session ID for parallel output
+		// Extract session ID for parallel output, and register the session for
+		// keepalive pings while the remaining sessions are still being created.
 		var sessionID string
 		if appDrv, ok := driver.(*appiumdriver.Driver); ok {
 			sessionID = appDrv.SessionID()
+			kaMu.Lock()
+			kaDrivers = append(kaDrivers, appDrv)
+			kaMu.Unlock()
 		}
 
 		// Capture per-worker cloud metadata (each session = separate cloud job).
