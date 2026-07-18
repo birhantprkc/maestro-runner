@@ -33,6 +33,7 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 
 	elem, info, err := d.findElementForTap(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
+		err = d.notFoundOrCrash(err)
 		return errorResult(err, fmt.Sprintf("Element not found: %v", err))
 	}
 	if info == nil {
@@ -109,6 +110,7 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 
 	elem, info, err := d.findElementForTap(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
+		err = d.notFoundOrCrash(err)
 		return errorResult(err, fmt.Sprintf("Element not found: %v", err))
 	}
 
@@ -136,6 +138,7 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 
 	elem, info, err := d.findElementForTap(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
+		err = d.notFoundOrCrash(err)
 		return errorResult(err, fmt.Sprintf("Element not found: %v", err))
 	}
 
@@ -211,6 +214,7 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 	// Use findElementFast - only need to check element exists (1 HTTP call vs 3)
 	_, info, err := d.findElementFast(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
+		err = d.notFoundOrCrash(err)
 		return errorResult(err, fmt.Sprintf("Element not visible: %v", err))
 	}
 
@@ -842,6 +846,7 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	if d.device == nil {
 		return errorResult(fmt.Errorf("device not configured"), "launchApp: no device connected — check ADB connection")
 	}
+	d.currentAppID = appID // remember for mid-flow crash detection
 
 	// Stop app first if requested (default: true)
 	if step.StopApp == nil || *step.StopApp {

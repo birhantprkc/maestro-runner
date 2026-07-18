@@ -80,6 +80,11 @@ type Driver struct {
 	// Keyboard auto-dismiss: set after inputText/inputRandom, checked on next tap/assert
 	lastStepWasInput bool
 
+	// currentAppID is the package launched by the last launchApp, used to
+	// detect a mid-flow crash/termination so a failing step reports "app
+	// crashed" instead of a generic "element not found".
+	currentAppID string
+
 	// Selector validation dedup
 	warnedFields map[string]bool
 }
