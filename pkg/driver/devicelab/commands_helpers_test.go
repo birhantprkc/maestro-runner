@@ -3074,3 +3074,29 @@ func TestSwipeInvalidDirection(t *testing.T) {
 		t.Error("expected failure for invalid swipe direction")
 	}
 }
+
+// TestInWebViewConnectBackoff verifies the WebView connect backoff: a socket
+// that failed recently is skipped, but a different socket, an elapsed backoff,
+// or no prior failure connects immediately (mirrors Maestro MA-4119 — a
+// stalled devtools endpoint must not add the connect timeout to every command).
+func TestInWebViewConnectBackoff(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name           string
+		socket, failSk string
+		lastFail       time.Time
+		want           bool
+	}{
+		{"no prior failure", "sockA", "", time.Time{}, false},
+		{"same socket, within backoff", "sockA", "sockA", now.Add(-1 * time.Second), true},
+		{"same socket, backoff elapsed", "sockA", "sockA", now.Add(-webViewConnectBackoff - time.Second), false},
+		{"different socket, recent failure", "sockB", "sockA", now.Add(-1 * time.Second), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := inWebViewConnectBackoff(c.socket, c.failSk, c.lastFail, now); got != c.want {
+				t.Errorf("inWebViewConnectBackoff = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
