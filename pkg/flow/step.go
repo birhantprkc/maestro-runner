@@ -1,7 +1,11 @@
 // Package flow handles parsing and representation of Maestro YAML flow files.
 package flow
 
-import "gopkg.in/yaml.v3"
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // StepType represents the type of step.
 type StepType string
@@ -67,10 +71,10 @@ const (
 	StepRunFlow           StepType = "runFlow"
 	StepRunScript         StepType = "runScript"
 	StepEvalScript        StepType = "evalScript"
-	StepEvalBrowserScript  StepType = "evalBrowserScript"
-	StepRunBrowserScript   StepType = "runBrowserScript"
-	StepEvalWebViewScript  StepType = "evalWebViewScript"
-	StepRunWebViewScript   StepType = "runWebViewScript"
+	StepEvalBrowserScript StepType = "evalBrowserScript"
+	StepRunBrowserScript  StepType = "runBrowserScript"
+	StepEvalWebViewScript StepType = "evalWebViewScript"
+	StepRunWebViewScript  StepType = "runWebViewScript"
 	StepGetConsoleLogs    StepType = "getConsoleLogs"
 	StepClearConsoleLogs  StepType = "clearConsoleLogs"
 	StepAssertNoJSErrors  StepType = "assertNoJSErrors"
@@ -119,6 +123,9 @@ type Step interface {
 	IsOptional() bool
 	Label() string
 	Describe() string
+	// PlatformGate returns the platform this step is restricted to
+	// ("ios"/"android"/"web", lowercased) or "" to run on all platforms.
+	PlatformGate() string
 }
 
 // BaseStep contains common fields for all steps.
@@ -127,7 +134,13 @@ type BaseStep struct {
 	Optional  bool     `yaml:"optional"`
 	StepLabel string   `yaml:"label"`
 	TimeoutMs int      `yaml:"timeout"`
+	// Platform restricts this step to a single platform; when set and it
+	// doesn't match the running driver, the step is skipped (Maestro #1353).
+	Platform string `yaml:"platform"`
 }
+
+// PlatformGate returns the step's platform restriction, lowercased, or "".
+func (b *BaseStep) PlatformGate() string { return strings.ToLower(strings.TrimSpace(b.Platform)) }
 
 // Type returns the step type.
 func (b *BaseStep) Type() StepType { return b.StepType }
