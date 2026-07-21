@@ -215,9 +215,14 @@ func WriteScreenshotDiff(expectedData, actualData []byte, diffPath string) error
 	if err != nil {
 		return fmt.Errorf("create diff file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // safety net for early return; Close error surfaced below
 	if err := png.Encode(f, diff); err != nil {
 		return fmt.Errorf("encode diff PNG: %w", err)
+	}
+	// Surface a close error on the write path — a deferred, unchecked Close
+	// can hide a final flush failure.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close diff file: %w", err)
 	}
 	return nil
 }
