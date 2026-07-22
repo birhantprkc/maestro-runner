@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/devicelab-dev/maestro-runner/pkg/device"
+	"github.com/devicelab-dev/maestro-runner/pkg/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -36,18 +39,13 @@ Examples:
 var hierarchyCommand = &cli.Command{
 	Name:  "hierarchy",
 	Usage: "Print the view hierarchy of the connected device",
-	Description: `Print out the view hierarchy of the connected device in JSON or CSV format.
+	Description: `Print out the view hierarchy of the connected device in the device-specific tree format
 
 Examples:
   maestro-runner hierarchy
-  maestro-runner hierarchy --compact
   maestro-runner hierarchy --device emulator-5554`,
-	Flags: []cli.Flag{
-		&cli.BoolFlag{
-			Name:  "compact",
-			Usage: "Output in CSV format",
-		},
-	},
+	// No flags defined yet, keeping this as a placeholder
+	Flags:  []cli.Flag{},
 	Action: runHierarchy,
 }
 
@@ -79,20 +77,99 @@ func runStartDevice(c *cli.Context) error {
 }
 
 func runHierarchy(c *cli.Context) error {
-	device := c.String("device")
-	compact := c.Bool("compact")
+	runDevice := c.String("device")
 
 	// TODO: Implement hierarchy dump
 	fmt.Println("Hierarchy command received:")
-	if device != "" {
-		fmt.Printf("  Device: %s\n", device)
+	if runDevice != "" {
+		fmt.Printf("  Device: %s\n", runDevice)
 	}
-	if compact {
-		fmt.Println("  Format: CSV")
-	} else {
-		fmt.Println("  Format: JSON")
+	fmt.Println("\n[WARNING: Not yet fully tested - use with caution]")
+
+	// Helper to get flag value from current or parent context
+	// When run as subcommand, global flags are in parent context
+	// NOTE: This are duplicated from pkg/cli/test.go, may want to refactor
+	getString := func(name string) string {
+		if c.IsSet(name) {
+			return c.String(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].String(name)
+		}
+		return c.String(name)
+	}
+	getInt := func(name string) int {
+		if c.IsSet(name) {
+			return c.Int(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].Int(name)
+		}
+		return c.Int(name)
+	}
+	getBool := func(name string) bool {
+		if c.IsSet(name) {
+			return c.Bool(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].Bool(name)
+		}
+		return c.Bool(name)
 	}
 
-	fmt.Println("\n[Not yet implemented - will dump view hierarchy]")
+	// Load Appium capabilities if provided
+	capsFile := getString("caps")
+	var caps map[string]interface{}
+	if capsFile != "" {
+		var err error
+		caps, err = loadCapabilities(capsFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Build run configuration, limited to elements relevant to hierarchy subcommand
+	cfg := &RunConfig{
+		Headed:             getBool("headed"),
+		Browser:            getString("browser"),
+		UserDataDir:        getString("user-data-dir"),
+		Platform:           getString("platform"),
+		Devices:            parseDevices(getString("device")),
+		Driver:             getString("driver"),
+		AppiumURL:          getString("appium-url"),
+		AppiumSessionFile:  getString("appium-session-file"),
+		CapsFile:           capsFile,
+		Capabilities:       caps,
+		TeamID:             getString("team-id"),
+		WDABundleID:        getString("wda-bundle-id"),
+		StartEmulator:      getString("start-emulator"),
+		StartSimulator:     getString("start-simulator"),
+		AutoStartEmulator:  getBool("auto-start-emulator"),
+		BootTimeout:        getInt("boot-timeout"),
+		DriverStartTimeout: getInt("driver-start-timeout"),
+		NoDriverInstall:    getBool("no-driver-install"),
+		NoFlutterFallback:  getBool("no-flutter-fallback"),
+		AndroidTCPForward:  getBool("android-tcp-forward"),
+	}
+
+	driver, cleanup, err := CreateDriver(cfg)
+	if err != nil {
+		logger.Error("Failed to create driver: %v", err)
+		// Surface NoDevicesError directly so the helpful message isn't buried
+		var noDevErr *device.NoDevicesError
+		if errors.As(err, &noDevErr) {
+			logger.Error("NoDevicesError: %v", noDevErr)
+			return nil
+		}
+		return nil
+	}
+	defer cleanup()
+
+	tree, err := driver.Hierarchy()
+	if err != nil {
+		logger.Error("Failed to get hierarchy: %v", err)
+		return nil
+	}
+	fmt.Println(string(tree))
 	return nil
 }
