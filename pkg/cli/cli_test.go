@@ -277,6 +277,24 @@ func TestHierarchyCommand(t *testing.T) {
 	}
 }
 
+func TestHierarchyCommand_WithCompact(t *testing.T) {
+	app := &cli.App{
+		Name:     "test-app",
+		Flags:    GlobalFlags,
+		Commands: []*cli.Command{hierarchyCommand},
+	}
+
+	// Capture stdout to suppress output
+	oldStdout := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldStdout }()
+
+	err := app.Run([]string{"test-app", "hierarchy", "--compact"})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestHierarchyCommand_WithMock(t *testing.T) {
 	app := &cli.App{
 		Name:     "test-app",

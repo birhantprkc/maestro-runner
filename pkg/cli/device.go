@@ -44,8 +44,12 @@ var hierarchyCommand = &cli.Command{
 Examples:
   maestro-runner hierarchy
   maestro-runner hierarchy --device emulator-5554`,
-	// No flags defined yet, keeping this as a placeholder
-	Flags:  []cli.Flag{},
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "compact",
+			Usage: "Output in CSV format",
+		},
+	},
 	Action: runHierarchy,
 }
 
@@ -78,13 +82,16 @@ func runStartDevice(c *cli.Context) error {
 
 func runHierarchy(c *cli.Context) error {
 	runDevice := c.String("device")
+	compact := c.Bool("compact")
 
-	// TODO: Implement hierarchy dump
 	fmt.Println("Hierarchy command received:")
 	if runDevice != "" {
 		fmt.Printf("  Device: %s\n", runDevice)
 	}
 	fmt.Println("\n[WARNING: Not yet fully tested - use with caution]")
+	if compact {
+		fmt.Println("[Compact mode not yet implemented, will print full hierarchy]")
+	}
 
 	// Helper to get flag value from current or parent context
 	// When run as subcommand, global flags are in parent context
@@ -170,6 +177,7 @@ func runHierarchy(c *cli.Context) error {
 		logger.Error("Failed to get hierarchy: %v", err)
 		return nil
 	}
+	// TODO: If 'tree' is a JSON object and 'compact' is true, print the object as a CSV
 	fmt.Println(string(tree))
 	return nil
 }
