@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -276,21 +277,38 @@ func TestHierarchyCommand(t *testing.T) {
 	}
 }
 
-func TestHierarchyCommand_WithCompact(t *testing.T) {
+func TestHierarchyCommand_WithMock(t *testing.T) {
 	app := &cli.App{
 		Name:     "test-app",
 		Flags:    GlobalFlags,
 		Commands: []*cli.Command{hierarchyCommand},
 	}
 
-	// Capture stdout to suppress output
+	// Capture stdout for validation
 	oldStdout := os.Stdout
-	os.Stdout, _ = os.Open(os.DevNull)
-	defer func() { os.Stdout = oldStdout }()
+	reader, writer, _ := os.Pipe()
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = oldStdout
+		reader.Close()
+	}()
 
-	err := app.Run([]string{"test-app", "hierarchy", "--compact"})
+	err := app.Run([]string{"test-app", "--platform", "mock", "hierarchy"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+	writer.Close()
+	output, _ := io.ReadAll(reader)
+	response := string(output)
+	// Mock driver emits a static JSON response, check for a handful of text snippets
+	for _, expected := range []string{
+		`"type": "View"`,
+		`"id": "mock-element"`,
+		`"text": "Mock Element"`,
+	} {
+		if !strings.Contains(response, expected) {
+			t.Errorf("hierarchy output missing %q\nfull output:\n%s", expected, response)
+		}
 	}
 }
 
