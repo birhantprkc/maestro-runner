@@ -193,39 +193,28 @@ func (d *Driver) checkKeyboardBlocking(wasInput bool, sel flow.Selector) *core.C
 	)
 }
 
-// settleKeyboardBlocking re-samples element vs keyboard geometry until keyboardSettleWindow
-// elapses: IME-aware windows (SOFT_INPUT_ADJUST_RESIZE) lift the target above the keyboard
-// shortly after an input step, and rejecting on first-frame geometry would fail elements
-// that are tappable an instant later. Only a PERSISTENT overlap — the true positive this
-// guard exists for — returns the error. The samplers are injected so the settle behavior
-// is testable without a live driver.
+// settleKeyboardBlocking wraps the shared core settle loop (core.SettleKeyboardBlocking)
+// with this driver's ElementInfo sampler, verdict (keyboardStillCovering, which includes
+// the suggestion-strip margin), and error. The loop itself is shared with the uiautomator2
+// driver so the two can't drift on timing behavior.
 func settleKeyboardBlocking(findElement func() (*core.ElementInfo, bool),
 	keyboardBounds func() *core.Bounds) *core.CommandResult {
-	deadline := time.Now().Add(keyboardSettleWindow)
-	lastKbTop, lastCenterY := -1, -1
-	for {
-		info, ok := findElement()
-		if !ok {
-			return nil
-		}
-
-		kbBounds := keyboardBounds()
-		if !keyboardStillCovering(info.Bounds, kbBounds) {
-			// Keyboard dismissed, or the window resized/panned and the element
-			// now sits above it — nothing blocks the tap.
-			return nil
-		}
-
-		_, cy := info.Bounds.Center()
-		lastKbTop, lastCenterY = kbBounds.Y, cy
-
-		if !time.Now().Before(deadline) {
-			break
-		}
-		time.Sleep(keyboardSettlePoll)
+	blocked, kbTop, centerY := core.SettleKeyboardBlocking(
+		func() (core.Bounds, bool) {
+			info, ok := findElement()
+			if !ok {
+				return core.Bounds{}, false
+			}
+			return info.Bounds, true
+		},
+		keyboardBounds,
+		keyboardStillCovering,
+		keyboardSettleWindow, keyboardSettlePoll,
+	)
+	if !blocked {
+		return nil
 	}
-
 	return errorResult(errKeyboardOpen,
 		fmt.Sprintf("Element found but keyboard is covering it (keyboard top: %d, element center Y: %d) — add a `- hideKeyboard` step before this step",
-			lastKbTop, lastCenterY))
+			kbTop, centerY))
 }
