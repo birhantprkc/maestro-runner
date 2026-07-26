@@ -779,6 +779,16 @@ func buildStateFilter(sel flow.Selector) string {
 func (d *Driver) findElementByWDA(sel flow.Selector) (*core.ElementInfo, error) {
 	stateFilter := buildStateFilter(sel)
 
+	// When BOTH an id and text are given, the single-field fast paths below each
+	// match on one field only — the id branch returns as soon as it finds an
+	// element with that id, before text is ever checked — silently degrading a
+	// combined selector to an OR (an element with the right id but wrong text
+	// would pass, or the text branch would match a different element entirely).
+	// Defer to the page-source matcher, which ANDs id + text on one element. (#130)
+	if sel.ID != "" && sel.Text != "" {
+		return nil, fmt.Errorf("combined id+text selector requires page-source AND matching")
+	}
+
 	// Try class chain for accessibility ID
 	if sel.ID != "" {
 		if looksLikeRegex(sel.ID) {
