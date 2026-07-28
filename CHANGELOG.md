@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.21] - 2026-07-28
+
+The headline is **`assertScreenshot`** — visual regression testing with a highlighted diff image — contributed by the community. Alongside it: two regressions from v1.1.20 fixed (the keyboard-blocking guard on both Android drivers), a correctness fix where iOS `id:` + `text:` silently degraded to an OR, clearer failures when an app crashes mid-flow, correct WDA ports for legacy iOS UDIDs in parallel runs, and step-level `platform:` conditions.
+
+### Added
+- **`assertScreenshot` — visual regression testing** — compare the screen (or a cropped element) against a reference PNG, failing when the match falls below a threshold. On mismatch it writes a `*__diff.png` with the changed regions boxed in red. The reference is created automatically on first run, and `--update-screenshots` re-baselines intentionally. Built entirely on the Go standard library — no new dependencies.
+  ```yaml
+  - assertScreenshot:
+      path: screenshots/login
+      thresholdPercentage: 95
+      cropOn:
+        id: login-form
+  ```
+  Contributed by [@kacperzolkiewski](https://github.com/kacperzolkiewski) ([#126](https://github.com/devicelab-dev/maestro-runner/pull/126)).
+- **Step-level `platform:` conditions** — a step can be restricted to one platform and is skipped (not failed) elsewhere, so a single flow can carry platform-specific steps.
+  ```yaml
+  - tapOn:
+      text: "Allow"
+      platform: ios
+  ```
+- **App crash / termination is reported as such** — on Android, when the app-under-test dies mid-flow (crash, native SIGSEGV/SIGABRT, ANR, or kill), a following step now fails with `app '<pkg>' is no longer running (crashed or was terminated during the flow)` — with the crash cause pulled from logcat when available — instead of a misleading `element not found: context deadline exceeded`. UIAutomator2 driver.
+- **Flutter web `id:` selectors** — `findByID` now also matches `flt-semantics-identifier`, so a Maestro `id:` targets Flutter web widgets (Flutter renders a widget's `Semantics` identifier as that attribute). Mirrors Maestro #3323.
+
+### Fixed
+- **iOS: `id:` + `text:` together silently degraded to an OR** — `assertVisible`/`tapOn` given both an `id` and `text` did not require them on the same element: the WDA finder returned as soon as it found an element with the given id (never checking text), and only if the id matched nothing did it fall back to a text-contains-anywhere query that ignored the id. So a wrong `text:` value passed green against the right id'd element (masking wrong displayed values), and a substring text could match a different element entirely. A combined `id` + `text` selector now requires both on one element (the DeviceLab iOS driver already did this; the bug was WDA-only). Reported by [@ahabshamaa](https://github.com/ahabshamaa) ([#130](https://github.com/devicelab-dev/maestro-runner/issues/130)).
+- **Regression (v1.1.20): keyboard-blocking guard falsely rejected a tappable element** — the guard added in v1.1.20 sampled element and keyboard geometry once, immediately after an input step. Windows using `SOFT_INPUT_ADJUST_RESIZE` (e.g. a plain `AlertDialog` whose body scrolls) relayout a few frames after the IME appears: the target reports covered bounds on the first frame, then the window shrinks and it rises above the keyboard. The single-shot check read the stale first frame and failed a perfectly tappable element (e.g. submitting a dialog via `tapOn: android:id/button1` right after `inputText`). The check now re-samples every 50 ms for up to 2 s and fails only on a *persistent* overlap, returning immediately once the element clears — no latency on the happy path. Fixed on the DeviceLab driver by [@MarioRial22](https://github.com/MarioRial22) ([#127](https://github.com/devicelab-dev/maestro-runner/pull/127)) and extended to the default UIAutomator2 driver, with the settle loop shared in `pkg/core` so the two can't drift.
+- **iOS: `id:` matched by substring, resolving to the wrong element** — a literal `id:` selector matched an accessibility id by substring, so `id: enriched-text` could resolve to `set-enriched-text-button` (a superset) purely by match order. Both iOS drivers now prefer an exact `id` match, falling back to substring only when no exact match exists — preserving lenient partial-id matching while fixing the ambiguous case. Surfaced through `assertScreenshot`'s `cropOn`. Reported by [@kacperzolkiewski](https://github.com/kacperzolkiewski) ([#128](https://github.com/devicelab-dev/maestro-runner/issues/128)).
+- **iOS: legacy 40-character UDIDs all collided on WDA port 8100** — `PortFromUDID` parsed the whole segment after the last hyphen as a `uint64`. A legacy 40-character UDID has no hyphen, so all 40 hex chars were parsed, overflowed `uint64`, and fell back to port 8100 for *every* such device — so two of them in parallel both forwarded 8100 and the second failed with "address already in use". The port is now derived from the last 12 hex characters; a standard UUID's final group is already 12 chars, so UUID-derived ports are unchanged. Reported by [@eatbob](https://github.com/eatbob) ([#129](https://github.com/devicelab-dev/maestro-runner/issues/129)).
+- **DeviceLab: a stalled WebView devtools socket slowed every command** — `ensureWebViewConnection` runs on every command while the WebView isn't connected, and a connect against a stalled/unreachable devtools endpoint spends its full timeout (~20 s). A single flaky WebView therefore added ~20 s to every step. A failed connect now backs off (5 s per socket) so it can't keep re-slowing commands; the command falls through to native finding meanwhile. Mirrors Maestro MA-4119.
+- **WDA: recover from a transient `kAXErrorInvalidUIElement`** — a page-source snapshot taken while the accessibility tree is mutating can fail with a transient `kAXErrorInvalidUIElement` (-25202) that clears on the next attempt. `Source()` now retries once before surfacing it, so assertions and diagnostics don't fail on a momentary tree mutation. Mirrors Maestro #3430.
+
+### Contributors
+Thanks to everyone who shaped this release.
+
+**Code contributions:**
+- [@kacperzolkiewski](https://github.com/kacperzolkiewski) — `assertScreenshot` visual regression command ([#126](https://github.com/devicelab-dev/maestro-runner/pull/126)), and reported the iOS substring-id bug ([#128](https://github.com/devicelab-dev/maestro-runner/issues/128))
+- [@MarioRial22](https://github.com/MarioRial22) — keyboard-blocking settle fix on the DeviceLab driver ([#127](https://github.com/devicelab-dev/maestro-runner/pull/127))
+
+**Reported by:**
+- [@ahabshamaa](https://github.com/ahabshamaa) — iOS `id:` + `text:` OR-instead-of-AND ([#130](https://github.com/devicelab-dev/maestro-runner/issues/130))
+- [@eatbob](https://github.com/eatbob) — legacy 40-char UDID WDA port collision ([#129](https://github.com/devicelab-dev/maestro-runner/issues/129))
+
 ## [1.1.20] - 2026-07-16
 
 A reporter-driven correctness release with two themes. First, **`swipe` with a `from:`/selector anchor now works consistently across every driver** — it targets the element's bounds and honours `duration:` on Android (uiautomator2, DeviceLab), iOS (WDA, DeviceLab), Appium, and the browser, so slider/drag-handle gestures land instead of registering as a fast flick. Second, a batch of environment and cloud fixes from real-world runs: iOS builds work on Intel Macs, the flow parser stops choking on arrow-comment headers and bare `scroll`, Android WebView form fields actually receive typed text, and `--parallel` Appium sessions survive on cloud device farms.
