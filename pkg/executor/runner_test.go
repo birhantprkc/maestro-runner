@@ -2756,3 +2756,60 @@ func encodeTestPNG(t *testing.T, pixels []imagecolor.RGBA) []byte {
 	}
 	return data.Bytes()
 }
+
+// TestRunner_StepPlatformGate verifies a step restricted to another platform is
+// skipped (its driver Execute is never called) while unrestricted and
+// matching-platform steps run. Maestro #1353.
+func TestRunner_StepPlatformGate(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	var executed []flow.StepType
+	driver := &mockDriver{
+		platformFunc: func() *core.PlatformInfo { return &core.PlatformInfo{Platform: "android", DeviceID: "d"} },
+		executeFunc: func(step flow.Step) *core.CommandResult {
+			executed = append(executed, step.Type())
+			return &core.CommandResult{Success: true}
+		},
+	}
+
+	runner := New(driver, RunnerConfig{
+		OutputDir: tmpDir, Artifacts: ArtifactNever,
+		Device: report.Device{ID: "d", Platform: "android"}, App: report.App{ID: "com.test"},
+		RunnerVersion: "1.0.0", DriverName: "mock",
+	})
+
+	flows := []flow.Flow{{
+		SourcePath: "t.yaml", Config: flow.Config{Name: "gate"},
+		Steps: []flow.Step{
+			&flow.LaunchAppStep{BaseStep: flow.BaseStep{StepType: flow.StepLaunchApp}},
+			&flow.TapOnStep{BaseStep: flow.BaseStep{StepType: flow.StepTapOn, Platform: "iOS"}},   // skipped on android
+			&flow.BackStep{BaseStep: flow.BaseStep{StepType: flow.StepBack, Platform: "Android"}}, // runs on android
+			&flow.AssertVisibleStep{BaseStep: flow.BaseStep{StepType: flow.StepAssertVisible}},    // no gate, runs
+		},
+	}}
+
+	if _, err := runner.Run(context.Background(), flows); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, e := range executed {
+		if e == flow.StepTapOn {
+			t.Errorf("iOS-gated tapOn should have been skipped on android, but it executed")
+		}
+	}
+	hasBack, hasAssert := false, false
+	for _, e := range executed {
+		if e == flow.StepBack {
+			hasBack = true
+		}
+		if e == flow.StepAssertVisible {
+			hasAssert = true
+		}
+	}
+	if !hasBack {
+		t.Error("android-gated back should have run on android")
+	}
+	if !hasAssert {
+		t.Error("ungated assertVisible should have run")
+	}
+}

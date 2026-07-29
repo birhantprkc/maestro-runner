@@ -2071,3 +2071,21 @@ func TestFlow_GetTestCases(t *testing.T) {
 		t.Errorf("testCases[1].File = %q, want 'checkout.yaml'", testCases[1].File)
 	}
 }
+
+// TestParse_StepPlatformGate verifies a step's `platform:` field parses and
+// PlatformGate() normalizes it (Maestro #1353).
+func TestParse_StepPlatformGate(t *testing.T) {
+	f, err := Parse([]byte("appId: com.app\n---\n- tapOn:\n    text: Login\n    platform: iOS\n- back\n"), "p.yaml")
+	if err != nil {
+		t.Fatalf("Parse() error: %v", err)
+	}
+	if len(f.Steps) != 2 {
+		t.Fatalf("got %d steps, want 2", len(f.Steps))
+	}
+	if g := f.Steps[0].PlatformGate(); g != "ios" {
+		t.Errorf("step 0 PlatformGate() = %q, want \"ios\"", g)
+	}
+	if g := f.Steps[1].PlatformGate(); g != "" {
+		t.Errorf("ungated step PlatformGate() = %q, want \"\"", g)
+	}
+}

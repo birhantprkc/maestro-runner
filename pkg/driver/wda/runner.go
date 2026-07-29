@@ -95,9 +95,17 @@ func PortFromUDID(udid string) uint16 {
 	if idx := strings.LastIndex(udid, "-"); idx >= 0 {
 		seg = udid[idx+1:]
 	}
+	// Bound to the last 12 hex chars before parsing. A standard UUID's final
+	// segment is already exactly 12 chars, so UUID-derived ports are unchanged;
+	// a legacy 40-char hyphenless UDID would otherwise overflow uint64 in
+	// ParseUint and fall back to 8100 for every device — colliding in parallel
+	// runs (#129).
+	if len(seg) > 12 {
+		seg = seg[len(seg)-12:]
+	}
 	val, err := strconv.ParseUint(seg, 16, 64)
 	if err != nil {
-		return wdaBasePort // fallback to 8100 if UDID is not a standard UUID
+		return wdaBasePort // fallback to 8100 if the tail isn't hex
 	}
 	return wdaBasePort + uint16(val%uint64(wdaPortRange))
 }

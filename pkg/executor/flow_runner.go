@@ -325,6 +325,16 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 	// Mark step as started
 	fr.flowWriter.CommandStart(idx)
 
+	// Step-level platform gate: a step with `platform: ios|android|web` runs
+	// only on that platform and is skipped elsewhere (Maestro #1353).
+	if gate := step.PlatformGate(); gate != "" {
+		if info := fr.driver.GetPlatformInfo(); info != nil && !strings.EqualFold(info.Platform, gate) {
+			logger.Debug("Skipping step %d: platform gate %q != driver platform %q", idx, gate, info.Platform)
+			fr.flowWriter.CommandEnd(idx, report.StatusSkipped, nil, nil, report.CommandArtifacts{})
+			return report.StatusSkipped, "", time.Since(stepStart).Milliseconds()
+		}
+	}
+
 	// Determine what artifacts to capture
 	captureAlways := fr.config.Artifacts == ArtifactAlways
 	captureOnFailure := fr.config.Artifacts == ArtifactOnFailure
