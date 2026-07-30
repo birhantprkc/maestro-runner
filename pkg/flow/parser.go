@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -878,7 +879,13 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 		} else if err := valueNode.Decode(&s); err != nil {
 			return nil, wrapParseError(sourcePath, valueNode.Line, err)
 		}
-		if s.ThresholdPercentage == 0 {
+		// Resolve a literal numeric threshold now so flows without variable
+		// interpolation work without the expand pass. A string value (e.g.
+		// "${VAR}") is left for ExpandStep. Absent or 0 → default.
+		if f, ok := ThresholdAsFloat(s.ThresholdRaw); ok {
+			s.ThresholdPercentage = f
+		}
+		if _, isStr := s.ThresholdRaw.(string); !isStr && s.ThresholdPercentage == 0 {
 			s.ThresholdPercentage = 95.0
 		}
 		s.StepType = stepType
@@ -906,8 +913,23 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 
 	case StepAddMedia:
 		var s AddMediaStep
-		if err := valueNode.Decode(&s); err != nil {
-			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		// Maestro's canonical syntax is a bare sequence of paths
+		// (`addMedia: ["a.jpg", "b.jpg"]` / block list), so decode a sequence
+		// straight into Files. A single scalar path and the historical mapping
+		// form (`addMedia: { files: [...] }`) are also accepted. (#131)
+		switch valueNode.Kind {
+		case yaml.SequenceNode:
+			if err := valueNode.Decode(&s.Files); err != nil {
+				return nil, wrapParseError(sourcePath, valueNode.Line, err)
+			}
+		case yaml.ScalarNode:
+			if valueNode.Value != "" {
+				s.Files = []string{valueNode.Value}
+			}
+		default:
+			if err := valueNode.Decode(&s); err != nil {
+				return nil, wrapParseError(sourcePath, valueNode.Line, err)
+			}
 		}
 		s.StepType = stepType
 		return &s, nil
@@ -1114,6 +1136,28 @@ func wrapParseError(path string, line int, err error) error {
 		Line:    line,
 		Message: err.Error(),
 	}
+}
+
+// ThresholdAsFloat coerces a raw YAML `thresholdPercentage:` value into a
+// float. YAML decodes a bare number into an int or float64 (via `any`); a
+// numeric string is also accepted so a `${VAR}` that resolves to "98.5" works
+// once expanded. Returns ok=false for nil or non-numeric strings.
+func ThresholdAsFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	}
+	return 0, false
 }
 
 // ParseDirectory parses all YAML files in a directory.

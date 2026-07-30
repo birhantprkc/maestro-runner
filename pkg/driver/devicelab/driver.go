@@ -50,6 +50,7 @@ type DeviceLabClient interface {
 	HideKeyboard() error
 	PressKeyCode(keyCode int) error
 	SendKeyActions(text string) error
+	AddMedia(name, mime string, data []byte) error
 
 	// Device state
 	Screenshot() ([]byte, error)

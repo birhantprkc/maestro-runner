@@ -43,6 +43,10 @@ enum CommandType: String, Codable {
   // diff threshold; loops idleCheck internally until settled or timeout.
   // Avoids HTTP roundtrips per poll iteration.
   case awaitIdle
+  // Local extension (not in upstream agent-device): add a photo/video to the
+  // device Photos library via PhotoKit. This is the only way to inject media
+  // on a real iOS device (no host-side path exists), so it runs on-device.
+  case addMedia
 }
 
 struct Command: Codable {
@@ -79,6 +83,9 @@ struct Command: Codable {
   let scope: String?
   let raw: Bool?
   let fullscreen: Bool?
+  let mediaName: String?
+  let mimeType: String?
+  let mediaData: String?  // base64-encoded file bytes (addMedia)
 }
 
 struct Response: Codable {

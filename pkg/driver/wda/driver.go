@@ -297,6 +297,8 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.waitForAnimationToEnd(s)
 
 	// Media
+	case *flow.AddMediaStep:
+		result = d.addMedia(s)
 	case *flow.TakeScreenshotStep:
 		result = d.takeScreenshot(s)
 	case *flow.AssertScreenshotStep:

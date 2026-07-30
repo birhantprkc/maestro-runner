@@ -296,6 +296,17 @@ func (a *Adapter) SendKeyActions(text string) error {
 	return err
 }
 
+// AddMedia inserts a single media file into the device MediaStore via the
+// on-device agent (base64-encoded bytes over the RPC channel).
+func (a *Adapter) AddMedia(name, mime string, data []byte) error {
+	_, err := a.client.Call("Media.add", map[string]interface{}{
+		"name": name,
+		"mime": mime,
+		"data": base64.StdEncoding.EncodeToString(data),
+	})
+	return err
+}
+
 // --- Device state ---
 
 // Screenshot captures the screen and returns image bytes.

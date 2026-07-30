@@ -67,6 +67,11 @@ func (se *ScriptEngine) SetFlowDir(dir string) {
 	se.flowDir = dir
 }
 
+// FlowDir returns the current flow directory used for relative path resolution.
+func (se *ScriptEngine) FlowDir() string {
+	return se.flowDir
+}
+
 // SetVariable sets a variable in both Go map and JS engine.
 func (se *ScriptEngine) SetVariable(name, value string) {
 	se.variables[name] = value
@@ -649,6 +654,20 @@ func (se *ScriptEngine) ParseIntStrict(s string, defaultVal int) (int, error) {
 // ExpandStep expands variables in all string fields of a step.
 // Note: This modifies the step in place. For steps used in loops,
 // the parser creates fresh instances each iteration.
+// expandStringMap returns a copy of m with variables expanded in both keys and
+// values. Keys are expanded too so a permission name can itself be `${VAR}`
+// (Maestro #3428). Returns m unchanged when empty.
+func (se *ScriptEngine) expandStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return m
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[se.ExpandVariables(k)] = se.ExpandVariables(v)
+	}
+	return out
+}
+
 func (se *ScriptEngine) ExpandStep(step flow.Step) {
 	switch s := step.(type) {
 	case *flow.InputTextStep:
@@ -690,6 +709,10 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		for k, v := range s.Environment {
 			s.Environment[k] = se.ExpandVariables(v)
 		}
+		s.Permissions = se.expandStringMap(s.Permissions)
+	case *flow.SetPermissionsStep:
+		s.AppID = se.ExpandVariables(s.AppID)
+		s.Permissions = se.expandStringMap(s.Permissions)
 	case *flow.StopAppStep:
 		s.AppID = se.ExpandVariables(s.AppID)
 	case *flow.KillAppStep:
@@ -706,6 +729,22 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 	case *flow.AssertScreenshotStep:
 		s.Path = se.ExpandVariables(s.Path)
 		s.CropOn = se.expandSelector(s.CropOn)
+		// A string threshold (e.g. "${VAR}") is resolved here; a numeric
+		// literal was already resolved at parse time (Maestro #3444).
+		if str, ok := s.ThresholdRaw.(string); ok {
+			if f, ok := flow.ThresholdAsFloat(se.ExpandVariables(str)); ok && f != 0 {
+				s.ThresholdPercentage = f
+			} else {
+				s.ThresholdPercentage = 95.0
+			}
+		}
+	case *flow.AddMediaStep:
+		// Expand vars and resolve each media path to an absolute local path
+		// relative to the flow dir, so drivers receive host paths they can
+		// push to the device / feed to simctl.
+		for i, f := range s.Files {
+			s.Files[i] = se.ResolvePath(se.ExpandVariables(f))
+		}
 	case *flow.RunFlowStep:
 		s.File = se.ExpandVariables(s.File)
 		s.ElseFile = se.ExpandVariables(s.ElseFile)

@@ -1266,6 +1266,75 @@ func TestScriptEngine_ExpandStep_ScreenshotSteps(t *testing.T) {
 	}
 }
 
+func TestScriptEngine_ExpandStep_LaunchAppPermissions(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+	se.SetVariable("PERM", "location")
+	se.SetVariable("STATE", "allow")
+
+	s := &flow.LaunchAppStep{
+		AppID:       "com.example",
+		Permissions: map[string]string{"${PERM}": "${STATE}", "camera": "deny"},
+	}
+	se.ExpandStep(s)
+
+	if got := s.Permissions["location"]; got != "allow" {
+		t.Errorf("Permissions[location] = %q, want %q", got, "allow")
+	}
+	if got := s.Permissions["camera"]; got != "deny" {
+		t.Errorf("Permissions[camera] = %q, want %q", got, "deny")
+	}
+	if _, stale := s.Permissions["${PERM}"]; stale {
+		t.Errorf("unexpanded key ${PERM} still present: %#v", s.Permissions)
+	}
+}
+
+func TestScriptEngine_ExpandStep_SetPermissions(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+	se.SetVariable("STATE", "deny")
+
+	s := &flow.SetPermissionsStep{
+		AppID:       "com.example",
+		Permissions: map[string]string{"camera": "${STATE}"},
+	}
+	se.ExpandStep(s)
+
+	if got := s.Permissions["camera"]; got != "deny" {
+		t.Errorf("Permissions[camera] = %q, want %q", got, "deny")
+	}
+}
+
+func TestScriptEngine_ExpandStep_AssertScreenshotThreshold(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+	se.SetVariable("THRESH", "87.5")
+
+	t.Run("var resolves to float", func(t *testing.T) {
+		s := &flow.AssertScreenshotStep{Path: "b.png", ThresholdRaw: "${THRESH}"}
+		se.ExpandStep(s)
+		if s.ThresholdPercentage != 87.5 {
+			t.Errorf("ThresholdPercentage = %v, want 87.5", s.ThresholdPercentage)
+		}
+	})
+
+	t.Run("unresolvable var falls back to default", func(t *testing.T) {
+		s := &flow.AssertScreenshotStep{Path: "b.png", ThresholdRaw: "${MISSING}"}
+		se.ExpandStep(s)
+		if s.ThresholdPercentage != 95.0 {
+			t.Errorf("ThresholdPercentage = %v, want 95.0 (default)", s.ThresholdPercentage)
+		}
+	})
+
+	t.Run("numeric literal is untouched by expand", func(t *testing.T) {
+		s := &flow.AssertScreenshotStep{Path: "b.png", ThresholdPercentage: 92.0}
+		se.ExpandStep(s)
+		if s.ThresholdPercentage != 92.0 {
+			t.Errorf("ThresholdPercentage = %v, want 92.0", s.ThresholdPercentage)
+		}
+	})
+}
+
 func TestScriptEngine_ExpandStep_ScrollUntilVisibleDirection(t *testing.T) {
 	se := NewScriptEngine()
 	defer se.Close()

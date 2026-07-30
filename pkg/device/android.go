@@ -233,6 +233,12 @@ func (d *AndroidDevice) Uninstall(pkg string) error {
 	return err
 }
 
+// Push copies a local file to the device via `adb push`.
+func (d *AndroidDevice) Push(localPath, remotePath string) error {
+	_, err := d.adb("push", localPath, remotePath)
+	return err
+}
+
 // GetAppVersion returns the version name of an installed app.
 // Returns empty string if app is not installed or version cannot be determined.
 func (d *AndroidDevice) GetAppVersion(packageName string) string {

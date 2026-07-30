@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		185FD4F00E4669AEA940FBE7 /* SyntheticTyping.m in Sources */ = {isa = PBXBuildFile; fileRef = 2DDAC8B41684AB39CF12AB26 /* SyntheticTyping.m */; };
+		5AA0000000000000000000A0 /* SnapshotParams.m in Sources */ = {isa = PBXBuildFile; fileRef = 5AA0000000000000000000B0 /* SnapshotParams.m */; };
 		1934AC9AF1E68AFB58165881 /* RunnerTests+Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F2F4CA6FCF47D767563E5B /* RunnerTests+Transport.swift */; };
 		1EBCEDDEE576BAC031B5F650 /* RunnerTests+TvRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052AE177317DC11EE9E6FA7E /* RunnerTests+TvRemote.swift */; };
 		3A438251A66B70243B49C363 /* RunnerObjCExceptionCatcher.m in Sources */ = {isa = PBXBuildFile; fileRef = 2F3D4FD2D89EB2902E04F5E7 /* RunnerObjCExceptionCatcher.m */; };
@@ -18,6 +19,7 @@
 		753D50338AB047FE4BDA92DE /* RunnerTests+SystemModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2D00808BC0A6635CC9AEFD7 /* RunnerTests+SystemModal.swift */; };
 		883D9C64B55EABF9DD286026 /* RunnerTests+ScreenRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486553A4A4966C42E0BA3314 /* RunnerTests+ScreenRecorder.swift */; };
 		BBE1C2487D218AF14EB8F127 /* RunnerTests+Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA37358B6FEEE7B17DE26C9 /* RunnerTests+Snapshot.swift */; };
+		5AA0000000000000000000D0 /* RunnerTests+Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA0000000000000000000E0 /* RunnerTests+Media.swift */; };
 		C44D44B56B95EEDD2E2C78BF /* ATTRIBUTION.md in Resources */ = {isa = PBXBuildFile; fileRef = 20D2D6E64928481F1F3AC354 /* ATTRIBUTION.md */; };
 		CF03E8165BEF555C3066F91A /* RunnerTests+CommandExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8219A88A3A382A1DCC1CD098 /* RunnerTests+CommandExecution.swift */; };
 		D2B5963E6A06D33E24818A5B /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76DCB825707F4A9C7A7E52CD /* RunnerTests.swift */; };
@@ -43,11 +45,13 @@
 		20458AB5D7605E7B24151715 /* RunnerTests+Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Models.swift"; sourceTree = "<group>"; };
 		20D2D6E64928481F1F3AC354 /* ATTRIBUTION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ATTRIBUTION.md; sourceTree = "<group>"; };
 		2DDAC8B41684AB39CF12AB26 /* SyntheticTyping.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SyntheticTyping.m; sourceTree = "<group>"; };
+		5AA0000000000000000000B0 /* SnapshotParams.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SnapshotParams.m; sourceTree = "<group>"; };
 		2DE81DFDC1470520344A831F /* XCPointerEventPath.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XCPointerEventPath.h; sourceTree = "<group>"; };
 		2F3D4FD2D89EB2902E04F5E7 /* RunnerObjCExceptionCatcher.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RunnerObjCExceptionCatcher.m; sourceTree = "<group>"; };
 		468BFB67EE69287E9AA8C512 /* RunnerTests+Interaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Interaction.swift"; sourceTree = "<group>"; };
 		486553A4A4966C42E0BA3314 /* RunnerTests+ScreenRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+ScreenRecorder.swift"; sourceTree = "<group>"; };
 		4EA586454B489DC2D5371256 /* SyntheticTyping.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SyntheticTyping.h; sourceTree = "<group>"; };
+		5AA0000000000000000000C0 /* SnapshotParams.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SnapshotParams.h; sourceTree = "<group>"; };
 		58840AA09B61534F808615A5 /* RunnerTests+Alert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Alert.swift"; sourceTree = "<group>"; };
 		65C8657B8B10860BC0657028 /* DevicelabIOSRunnerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DevicelabIOSRunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		76DCB825707F4A9C7A7E52CD /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -58,6 +62,7 @@
 		C02DA55AE87DB0515133E2A5 /* XCUIDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = XCUIDevice.h; sourceTree = "<group>"; };
 		C0F2F4CA6FCF47D767563E5B /* RunnerTests+Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Transport.swift"; sourceTree = "<group>"; };
 		CBA37358B6FEEE7B17DE26C9 /* RunnerTests+Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Snapshot.swift"; sourceTree = "<group>"; };
+		5AA0000000000000000000E0 /* RunnerTests+Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+Media.swift"; sourceTree = "<group>"; };
 		D2D00808BC0A6635CC9AEFD7 /* RunnerTests+SystemModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunnerTests+SystemModal.swift"; sourceTree = "<group>"; };
 		E85CEE007A7264B73B702B66 /* RunnerObjCExceptionCatcher.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RunnerObjCExceptionCatcher.h; sourceTree = "<group>"; };
 		EF627B1D914552B1489154FE /* PixelDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelDiff.swift; sourceTree = "<group>"; };
@@ -100,11 +105,14 @@
 				20458AB5D7605E7B24151715 /* RunnerTests+Models.swift */,
 				486553A4A4966C42E0BA3314 /* RunnerTests+ScreenRecorder.swift */,
 				CBA37358B6FEEE7B17DE26C9 /* RunnerTests+Snapshot.swift */,
+				5AA0000000000000000000E0 /* RunnerTests+Media.swift */,
 				D2D00808BC0A6635CC9AEFD7 /* RunnerTests+SystemModal.swift */,
 				C0F2F4CA6FCF47D767563E5B /* RunnerTests+Transport.swift */,
 				052AE177317DC11EE9E6FA7E /* RunnerTests+TvRemote.swift */,
 				4EA586454B489DC2D5371256 /* SyntheticTyping.h */,
 				2DDAC8B41684AB39CF12AB26 /* SyntheticTyping.m */,
+				5AA0000000000000000000B0 /* SnapshotParams.m */,
+				5AA0000000000000000000C0 /* SnapshotParams.h */,
 			);
 			path = DevicelabIOSRunnerUITests;
 			sourceTree = "<group>";
@@ -247,11 +255,13 @@
 				6C7B733A9DB7FBBC0892582E /* RunnerTests+Models.swift in Sources */,
 				883D9C64B55EABF9DD286026 /* RunnerTests+ScreenRecorder.swift in Sources */,
 				BBE1C2487D218AF14EB8F127 /* RunnerTests+Snapshot.swift in Sources */,
+				5AA0000000000000000000D0 /* RunnerTests+Media.swift in Sources */,
 				753D50338AB047FE4BDA92DE /* RunnerTests+SystemModal.swift in Sources */,
 				1934AC9AF1E68AFB58165881 /* RunnerTests+Transport.swift in Sources */,
 				1EBCEDDEE576BAC031B5F650 /* RunnerTests+TvRemote.swift in Sources */,
 				D2B5963E6A06D33E24818A5B /* RunnerTests.swift in Sources */,
 				185FD4F00E4669AEA940FBE7 /* SyntheticTyping.m in Sources */,
+				5AA0000000000000000000A0 /* SnapshotParams.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,6 +348,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Add test media to the photo library.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -359,6 +370,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Add test media to the photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -379,6 +391,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Add test media to the photo library.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -400,6 +413,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Add test media to the photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -186,6 +186,8 @@ extension RunnerTests {
     case .shutdown:
       stopRecordingIfNeeded()
       return Response(ok: true, data: DataPayload(message: "shutdown"))
+    case .addMedia:
+      return try executeAddMedia(command: command)
     case .idleCheck:
       // Local extension: take two consecutive screenshots in-process,
       // diff them on the runner side, return just the fraction of
