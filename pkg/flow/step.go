@@ -800,11 +800,17 @@ type TakeScreenshotStep struct {
 }
 
 // AssertScreenshotStep compares a screenshot with a reference image.
+//
+// ThresholdRaw captures the raw `thresholdPercentage:` value (a number, or a
+// string like "${VAR}"), while ThresholdPercentage holds the resolved float.
+// A literal number is resolved at parse time; a string is deferred to the
+// expand pass so `${VAR}` interpolation works (Maestro #3444).
 type AssertScreenshotStep struct {
 	BaseStep            `yaml:",inline"`
 	Path                string    `yaml:"path"`
 	CropOn              *Selector `yaml:"cropOn,omitempty"`
-	ThresholdPercentage float64   `yaml:"thresholdPercentage"`
+	ThresholdPercentage float64   `yaml:"-"`
+	ThresholdRaw        any       `yaml:"thresholdPercentage,omitempty"`
 }
 
 // StartRecordingStep starts recording.

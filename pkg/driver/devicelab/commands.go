@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1791,22 +1792,27 @@ func (d *Driver) openBrowser(step *flow.OpenBrowserStep) *core.CommandResult {
 }
 
 func (d *Driver) addMedia(step *flow.AddMediaStep) *core.CommandResult {
-	if len(step.Files) == 0 {
-		return errorResult(fmt.Errorf("no files specified"), "No media files to add")
+	if err := core.ValidateMediaFiles(step.Files); err != nil {
+		return errorResult(err, err.Error())
 	}
 
-	if d.device == nil {
-		return errorResult(fmt.Errorf("device not configured"), "addMedia requires device access")
-	}
-
+	// Stream each file's bytes to the on-device agent, which inserts it into
+	// MediaStore (ContentResolver, IS_PENDING flow) so the app's picker/gallery
+	// can select it. This is the correct path on API 29+ scoped storage — the
+	// old MEDIA_SCANNER_SCAN_FILE broadcast is deprecated and doesn't register
+	// media for the modern photo picker.
 	for _, file := range step.Files {
-		cmd := fmt.Sprintf("am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://%s", file)
-		if _, err := d.device.Shell(cmd); err != nil {
-			return errorResult(err, fmt.Sprintf("Failed to add media %s: %v", file, err))
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return errorResult(err, fmt.Sprintf("Failed to read media file %s: %v", file, err))
+		}
+		mime, _ := core.MediaMIMEType(file)
+		if err := d.client.AddMedia(filepath.Base(file), mime, data); err != nil {
+			return errorResult(err, fmt.Sprintf("Failed to add media %s: %v", filepath.Base(file), err))
 		}
 	}
 
-	return successResult(fmt.Sprintf("Added %d media files", len(step.Files)), nil)
+	return successResult(fmt.Sprintf("Added %d media file(s)", len(step.Files)), nil)
 }
 
 func (d *Driver) removeMedia(_ *flow.RemoveMediaStep) *core.CommandResult {

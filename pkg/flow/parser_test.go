@@ -251,6 +251,84 @@ func TestParse_AssertScreenshotStep_DefaultThreshold(t *testing.T) {
 	}
 }
 
+func TestParse_AddMediaStep_Forms(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{"bare sequence (Maestro syntax)", "- addMedia:\n    - \"./a.jpg\"\n    - \"./b.png\"", []string{"./a.jpg", "./b.png"}},
+		{"flow sequence", `- addMedia: ["a.jpg", "b.png"]`, []string{"a.jpg", "b.png"}},
+		{"single scalar path", `- addMedia: "only.jpg"`, []string{"only.jpg"}},
+		{"mapping form (historical)", `- addMedia: {files: ["m.png"]}`, []string{"m.png"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			parsed, err := Parse([]byte(c.yaml), "test.yaml")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			step, ok := parsed.Steps[0].(*AddMediaStep)
+			if !ok {
+				t.Fatalf("expected AddMediaStep, got %T", parsed.Steps[0])
+			}
+			if len(step.Files) != len(c.want) {
+				t.Fatalf("Files = %#v, want %#v", step.Files, c.want)
+			}
+			for i := range c.want {
+				if step.Files[i] != c.want[i] {
+					t.Errorf("Files[%d] = %q, want %q", i, step.Files[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParse_AssertScreenshotStep_VarThreshold(t *testing.T) {
+	// A ${VAR} threshold must parse without error (it can't decode into a
+	// float at YAML time), leaving the raw string for the expand pass. (#3444)
+	parsed, err := Parse([]byte(`
+- assertScreenshot:
+    path: banner.png
+    thresholdPercentage: ${THRESH}
+`), "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	step, ok := parsed.Steps[0].(*AssertScreenshotStep)
+	if !ok {
+		t.Fatalf("expected AssertScreenshotStep, got %T", parsed.Steps[0])
+	}
+	if s, _ := step.ThresholdRaw.(string); s != "${THRESH}" {
+		t.Errorf("ThresholdRaw = %#v, want %q", step.ThresholdRaw, "${THRESH}")
+	}
+	// Not resolved yet — the executor's expand pass fills this in.
+	if step.ThresholdPercentage != 0 {
+		t.Errorf("ThresholdPercentage = %v, want 0 (unresolved)", step.ThresholdPercentage)
+	}
+}
+
+func TestThresholdAsFloat(t *testing.T) {
+	cases := []struct {
+		in   any
+		want float64
+		ok   bool
+	}{
+		{float64(98.5), 98.5, true},
+		{int(90), 90, true},
+		{"87.5", 87.5, true},
+		{"  91 ", 91, true},
+		{"${VAR}", 0, false},
+		{nil, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := ThresholdAsFloat(c.in)
+		if ok != c.ok || got != c.want {
+			t.Errorf("ThresholdAsFloat(%#v) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
 func TestParse_RepeatStep(t *testing.T) {
 	yaml := `
 - repeat:

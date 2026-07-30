@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1543,24 +1545,45 @@ func (d *Driver) openBrowser(step *flow.OpenBrowserStep) *core.CommandResult {
 }
 
 func (d *Driver) addMedia(step *flow.AddMediaStep) *core.CommandResult {
-	if len(step.Files) == 0 {
-		return errorResult(fmt.Errorf("no files specified"), "No media files to add")
+	if err := core.ValidateMediaFiles(step.Files); err != nil {
+		return errorResult(err, err.Error())
 	}
-
 	if d.device == nil {
 		return errorResult(fmt.Errorf("device not configured"), "addMedia requires device access")
 	}
+	pusher, ok := d.device.(interface {
+		Push(local, remote string) error
+	})
+	if !ok {
+		return errorResult(fmt.Errorf("device does not support file push"), "addMedia requires adb push support")
+	}
 
-	// Push each file to device's Download folder
 	for _, file := range step.Files {
-		// Use am broadcast to scan media after push
-		cmd := fmt.Sprintf("am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://%s", file)
-		if _, err := d.device.Shell(cmd); err != nil {
-			return errorResult(err, fmt.Sprintf("Failed to add media %s: %v", file, err))
+		if _, err := os.Stat(file); err != nil {
+			return errorResult(err, fmt.Sprintf("Media file not found: %s", file))
+		}
+		destDir := "/sdcard/Pictures/MaestroRunner"
+		if core.IsVideoMedia(file) {
+			destDir = "/sdcard/Movies/MaestroRunner"
+		}
+		if _, err := d.device.Shell("mkdir -p " + destDir); err != nil {
+			return errorResult(err, "Failed to create media directory")
+		}
+		remote := destDir + "/" + filepath.Base(file)
+		if err := pusher.Push(file, remote); err != nil {
+			return errorResult(err, fmt.Sprintf("Failed to push media %s: %v", filepath.Base(file), err))
+		}
+		// Register the pushed file with MediaStore so the picker/gallery sees
+		// it. The MEDIA_SCANNER_SCAN_FILE broadcast is deprecated and unreliable
+		// on API 29+, so scan the file directly via `content`; fall back to the
+		// broadcast on older devices where the method is unavailable.
+		scan := fmt.Sprintf("content call --uri content://media --method scan_file --arg %s", remote)
+		if _, err := d.device.Shell(scan); err != nil {
+			_, _ = d.device.Shell(fmt.Sprintf("am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://%s", remote))
 		}
 	}
 
-	return successResult(fmt.Sprintf("Added %d media files", len(step.Files)), nil)
+	return successResult(fmt.Sprintf("Added %d media file(s)", len(step.Files)), nil)
 }
 
 func (d *Driver) removeMedia(_ *flow.RemoveMediaStep) *core.CommandResult {

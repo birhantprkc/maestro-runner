@@ -45,6 +45,7 @@ const (
 	CmdRotate           CommandType = "rotate"
 	CmdAppSwitcher      CommandType = "appSwitcher"
 	CmdKeyboardDismiss  CommandType = "keyboardDismiss"
+	CmdAddMedia         CommandType = "addMedia"
 	CmdAlert            CommandType = "alert"
 	CmdPinch            CommandType = "pinch"
 	CmdRecordStart      CommandType = "recordStart"
@@ -89,6 +90,9 @@ type Command struct {
 	Orientation     string      `json:"orientation,omitempty"`
 	Scale           *float64    `json:"scale,omitempty"`
 	OutPath         string      `json:"outPath,omitempty"`
+	MediaName       string      `json:"mediaName,omitempty"`
+	MimeType        string      `json:"mimeType,omitempty"`
+	MediaData       string      `json:"mediaData,omitempty"` // base64-encoded file bytes (addMedia)
 	Fps             *int        `json:"fps,omitempty"`
 	Quality         *int        `json:"quality,omitempty"`
 	InteractiveOnly *bool       `json:"interactiveOnly,omitempty"`

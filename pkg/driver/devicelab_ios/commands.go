@@ -74,6 +74,8 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 		return d.handleOpenLink(s)
 	case *flow.SetLocationStep:
 		return d.handleSetLocation(s)
+	case *flow.AddMediaStep:
+		return d.handleAddMedia(s)
 	default:
 		return core.ErrorResult(
 			fmt.Errorf("step %T not implemented in devicelab_ios driver yet", step),

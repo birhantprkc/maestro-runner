@@ -649,6 +649,17 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 		referencePath += ".png"
 	}
 
+	// Reject a reference path that escapes both the flow directory and the
+	// project root — a baseline/diff must not be written outside the workspace
+	// via `..` traversal (Maestro #3459).
+	if err := validateArtifactPath(referencePath, fr.script.FlowDir()); err != nil {
+		return &core.CommandResult{
+			Success: false,
+			Error:   err,
+			Message: err.Error(),
+		}
+	}
+
 	referenceData, err := os.ReadFile(referencePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -732,6 +743,49 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 		),
 		Data: capturedData,
 	}
+}
+
+// validateArtifactPath rejects a screenshot baseline/diff path that escapes
+// the workspace via `..` traversal. It is permitted to live under the flow
+// directory or under the project root (cwd) — so a shared `../baselines`
+// layout still works — but not above both (Maestro #3459). A path is only
+// rejected when it demonstrably escapes; if neither root can be resolved the
+// path is allowed (fail-open, since this is defense-in-depth for local YAML).
+func validateArtifactPath(path, flowDir string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil
+	}
+	abs = filepath.Clean(abs)
+
+	within := func(root string) bool {
+		if root == "" {
+			return false
+		}
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return false
+		}
+		rel, err := filepath.Rel(absRoot, abs)
+		if err != nil {
+			return false
+		}
+		return rel == "." || !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+	}
+
+	if within(flowDir) {
+		return nil
+	}
+	if cwd, err := os.Getwd(); err == nil && within(cwd) {
+		return nil
+	}
+	// If we couldn't establish any root to compare against, don't block.
+	if flowDir == "" {
+		if _, err := os.Getwd(); err != nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("screenshot path %q escapes the workspace (path traversal not allowed)", path)
 }
 
 func writeScreenshotBaseline(path string, data []byte) error {

@@ -47,6 +47,7 @@ func (m *mockDeviceLabClient) Back() error                       { return nil }
 func (m *mockDeviceLabClient) HideKeyboard() error               { return nil }
 func (m *mockDeviceLabClient) PressKeyCode(keyCode int) error    { return nil }
 func (m *mockDeviceLabClient) SendKeyActions(text string) error  { return nil }
+func (m *mockDeviceLabClient) AddMedia(name, mime string, data []byte) error { return nil }
 func (m *mockDeviceLabClient) Screenshot() ([]byte, error)       { return nil, nil }
 func (m *mockDeviceLabClient) Source() (string, error)           { return m.sourceFunc() }
 func (m *mockDeviceLabClient) GetOrientation() (string, error)   { return "PORTRAIT", nil }

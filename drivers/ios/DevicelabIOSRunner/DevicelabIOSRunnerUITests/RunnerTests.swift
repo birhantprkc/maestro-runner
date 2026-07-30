@@ -96,6 +96,9 @@ final class RunnerTests: XCTestCase {
 
   override func setUp() {
     continueAfterFailure = true
+    // Override XCTest's clipped snapshot request params so element trees are
+    // complete on deep React Native hierarchies (matches WDA / devicekit-ios).
+    DLApplyCompleteSnapshotParams()
   }
 
   @MainActor
