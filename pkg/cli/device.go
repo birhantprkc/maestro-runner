@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/device"
 	"github.com/devicelab-dev/maestro-runner/pkg/logger"
@@ -39,15 +40,25 @@ Examples:
 var hierarchyCommand = &cli.Command{
 	Name:  "hierarchy",
 	Usage: "Print the view hierarchy of the connected device",
-	Description: `Print out the view hierarchy of the connected device in the device-specific tree format
+	Description: `Print the view hierarchy of the connected device as a normalized JSON tree.
+
+Output is consistent across drivers (Android, iOS, web) so it can be piped
+to jq or diffed between drivers. Use --compact for a flat, greppable view
+and --find to filter to elements matching a substring.
 
 Examples:
   maestro-runner hierarchy
-  maestro-runner hierarchy --device emulator-5554`,
+  maestro-runner hierarchy --device emulator-5554
+  maestro-runner hierarchy --compact
+  maestro-runner hierarchy --find "Sign in"`,
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "compact",
-			Usage: "Output in CSV format",
+			Usage: "Flat one-line-per-element output instead of a JSON tree",
+		},
+		&cli.StringFlag{
+			Name:  "find",
+			Usage: "Only show elements whose type/id/text contains this substring (case-insensitive)",
 		},
 	},
 	Action: runHierarchy,
@@ -83,14 +94,12 @@ func runStartDevice(c *cli.Context) error {
 func runHierarchy(c *cli.Context) error {
 	runDevice := c.String("device")
 	compact := c.Bool("compact")
+	find := c.String("find")
 
-	fmt.Println("Hierarchy command received:")
+	// Status goes to stderr (logger) so stdout carries only the hierarchy —
+	// keeps `maestro-runner hierarchy | jq` / `> tree.json` clean.
 	if runDevice != "" {
-		fmt.Printf("  Device: %s\n", runDevice)
-	}
-	fmt.Println("\n[WARNING: Not yet fully tested - use with caution]")
-	if compact {
-		fmt.Println("[Compact mode not yet implemented, will print full hierarchy]")
+		logger.Info("Capturing hierarchy from device: %s", runDevice)
 	}
 
 	// Helper to get flag value from current or parent context
@@ -159,25 +168,38 @@ func runHierarchy(c *cli.Context) error {
 		AndroidTCPForward:  getBool("android-tcp-forward"),
 	}
 
+	// Driver setup and teardown print progress to stdout; redirect that to
+	// stderr so stdout carries only the hierarchy and stays pipe-clean
+	// (hierarchy | jq / > tree.json).
+	realStdout := os.Stdout
+	os.Stdout = os.Stderr
+
 	driver, cleanup, err := CreateDriver(cfg)
 	if err != nil {
-		logger.Error("Failed to create driver: %v", err)
-		// Surface NoDevicesError directly so the helpful message isn't buried
+		os.Stdout = realStdout
+		// Surface NoDevicesError directly so its helpful message isn't buried;
+		// otherwise wrap. Either way return the error so the command exits
+		// non-zero (matches `test`) instead of silently succeeding.
 		var noDevErr *device.NoDevicesError
 		if errors.As(err, &noDevErr) {
-			logger.Error("NoDevicesError: %v", noDevErr)
-			return nil
+			return noDevErr
 		}
-		return nil
+		return fmt.Errorf("failed to create driver: %w", err)
 	}
-	defer cleanup()
+	defer func() { os.Stdout = os.Stderr; cleanup(); os.Stdout = realStdout }()
 
-	tree, err := driver.Hierarchy()
+	raw, err := driver.Hierarchy()
+	os.Stdout = realStdout
 	if err != nil {
-		logger.Error("Failed to get hierarchy: %v", err)
-		return nil
+		return fmt.Errorf("failed to get hierarchy: %w", err)
 	}
-	// TODO: If 'tree' is a JSON object and 'compact' is true, print the object as a CSV
-	fmt.Println(string(tree))
+
+	// Normalize the driver's platform-specific output (Android/iOS XML or the
+	// devicelab JSON) into one consistent tree, then render.
+	out, err := formatHierarchy(raw, compact, find)
+	if err != nil {
+		return fmt.Errorf("format hierarchy: %w", err)
+	}
+	fmt.Println(out)
 	return nil
 }

@@ -1,0 +1,96 @@
+package cli
+
+import (
+	"strings"
+	"testing"
+)
+
+const androidXML = `<?xml version="1.0"?>
+<hierarchy rotation="0">
+  <node class="android.widget.FrameLayout" resource-id="" text="" bounds="[0,0][1080,2400]">
+    <node class="android.widget.Button" resource-id="com.app:id/login" text="Sign In" bounds="[100,200][300,260]"/>
+  </node>
+</hierarchy>`
+
+const iosXML = `<?xml version="1.0"?>
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" name="App" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeButton type="XCUIElementTypeButton" name="loginBtn" label="Sign In" x="50" y="100" width="290" height="50"/>
+</XCUIElementTypeApplication>`
+
+const flatJSON = `{"nodes":[
+  {"index":0,"type":"Application","identifier":"","label":"","rect":{"x":0,"y":0,"width":390,"height":844},"parentIndex":null},
+  {"index":1,"type":"Button","identifier":"loginBtn","label":"Sign In","rect":{"x":50,"y":100,"width":290,"height":50},"parentIndex":0}
+]}`
+
+const treeJSON = `{"type":"View","children":[{"type":"Button","id":"login","text":"Sign In"}]}`
+
+func TestFormatHierarchy_Android(t *testing.T) {
+	out, err := formatHierarchy([]byte(androidXML), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type": "Button"`, `"id": "com.app:id/login"`, `"text": "Sign In"`, `"width": 200`, `"height": 60`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("android JSON missing %q\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatHierarchy_IOS(t *testing.T) {
+	out, err := formatHierarchy([]byte(iosXML), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type": "Button"`, `"id": "loginBtn"`, `"text": "Sign In"`, `"width": 290`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ios JSON missing %q\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatHierarchy_FlatJSON(t *testing.T) {
+	out, err := formatHierarchy([]byte(flatJSON), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Button (parentIndex 0) must be nested under the Application root.
+	if !strings.Contains(out, `"id": "loginBtn"`) || !strings.Contains(out, `"children"`) {
+		t.Errorf("flat JSON not normalized into a tree:\n%s", out)
+	}
+}
+
+func TestFormatHierarchy_Compact(t *testing.T) {
+	out, err := formatHierarchy([]byte(treeJSON), true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "{") {
+		t.Errorf("compact should be flat, not JSON:\n%s", out)
+	}
+	if !strings.Contains(out, "Button") || !strings.Contains(out, "id=login") || !strings.Contains(out, `text="Sign In"`) {
+		t.Errorf("compact missing expected fields:\n%s", out)
+	}
+	// The child Button must be indented under View.
+	if !strings.Contains(out, "\n  Button") {
+		t.Errorf("compact should indent children:\n%s", out)
+	}
+}
+
+func TestFormatHierarchy_Find(t *testing.T) {
+	out, err := formatHierarchy([]byte(androidXML), false, "sign in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Button") || !strings.Contains(out, "Sign In") {
+		t.Errorf("find should surface the matching Button:\n%s", out)
+	}
+	// The non-matching FrameLayout should be filtered out.
+	if strings.Contains(out, "FrameLayout") {
+		t.Errorf("find should exclude non-matching elements:\n%s", out)
+	}
+
+	none, _ := formatHierarchy([]byte(androidXML), false, "nonexistent-xyz")
+	if !strings.Contains(none, "no elements matching") {
+		t.Errorf("find with no match should report it, got:\n%s", none)
+	}
+}
