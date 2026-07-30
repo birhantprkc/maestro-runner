@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -269,8 +270,8 @@ func TestHierarchyCommand(t *testing.T) {
 	os.Stdout, _ = os.Open(os.DevNull)
 	defer func() { os.Stdout = oldStdout }()
 
-	// hierarchy should work without args (not yet implemented, just prints)
-	err := app.Run([]string{"test-app", "hierarchy"})
+	// The mock driver makes this deterministic regardless of connected devices.
+	err := app.Run([]string{"test-app", "--platform", "mock", "hierarchy"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -283,14 +284,61 @@ func TestHierarchyCommand_WithCompact(t *testing.T) {
 		Commands: []*cli.Command{hierarchyCommand},
 	}
 
-	// Capture stdout to suppress output
 	oldStdout := os.Stdout
-	os.Stdout, _ = os.Open(os.DevNull)
-	defer func() { os.Stdout = oldStdout }()
+	reader, writer, _ := os.Pipe()
+	os.Stdout = writer
+	defer func() { os.Stdout = oldStdout; reader.Close() }()
 
-	err := app.Run([]string{"test-app", "hierarchy", "--compact"})
+	err := app.Run([]string{"test-app", "--platform", "mock", "hierarchy", "--compact"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+	writer.Close()
+	output, _ := io.ReadAll(reader)
+	got := string(output)
+	// Compact output is a flat, indented listing — not JSON braces.
+	if strings.Contains(got, "{") {
+		t.Errorf("compact output should not contain JSON braces:\n%s", got)
+	}
+	for _, expected := range []string{"Button", "id=mock-element", `text="Mock Element"`} {
+		if !strings.Contains(got, expected) {
+			t.Errorf("compact output missing %q\nfull output:\n%s", expected, got)
+		}
+	}
+}
+
+func TestHierarchyCommand_WithMock(t *testing.T) {
+	app := &cli.App{
+		Name:     "test-app",
+		Flags:    GlobalFlags,
+		Commands: []*cli.Command{hierarchyCommand},
+	}
+
+	// Capture stdout for validation
+	oldStdout := os.Stdout
+	reader, writer, _ := os.Pipe()
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = oldStdout
+		reader.Close()
+	}()
+
+	err := app.Run([]string{"test-app", "--platform", "mock", "hierarchy"})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	writer.Close()
+	output, _ := io.ReadAll(reader)
+	response := string(output)
+	// Mock driver emits a static JSON response, check for a handful of text snippets
+	for _, expected := range []string{
+		`"type": "View"`,
+		`"id": "mock-element"`,
+		`"text": "Mock Element"`,
+	} {
+		if !strings.Contains(response, expected) {
+			t.Errorf("hierarchy output missing %q\nfull output:\n%s", expected, response)
+		}
 	}
 }
 
@@ -566,9 +614,11 @@ func TestHierarchyCommand_WithDevice(t *testing.T) {
 	os.Stdout, _ = os.Open(os.DevNull)
 	defer func() { os.Stdout = oldStdout }()
 
+	// A non-existent device must now surface an error (the command no longer
+	// swallows failures and exits 0).
 	err := app.Run([]string{"test-app", "--device", "emulator-5554", "hierarchy"})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Error("expected an error for a non-existent device, got nil")
 	}
 }
 

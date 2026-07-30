@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
+	"github.com/devicelab-dev/maestro-runner/pkg/device"
+	"github.com/devicelab-dev/maestro-runner/pkg/logger"
 	"github.com/urfave/cli/v2"
 )
 
@@ -36,16 +40,25 @@ Examples:
 var hierarchyCommand = &cli.Command{
 	Name:  "hierarchy",
 	Usage: "Print the view hierarchy of the connected device",
-	Description: `Print out the view hierarchy of the connected device in JSON or CSV format.
+	Description: `Print the view hierarchy of the connected device as a normalized JSON tree.
+
+Output is consistent across drivers (Android, iOS, web) so it can be piped
+to jq or diffed between drivers. Use --compact for a flat, greppable view
+and --find to filter to elements matching a substring.
 
 Examples:
   maestro-runner hierarchy
+  maestro-runner hierarchy --device emulator-5554
   maestro-runner hierarchy --compact
-  maestro-runner hierarchy --device emulator-5554`,
+  maestro-runner hierarchy --find "Sign in"`,
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "compact",
-			Usage: "Output in CSV format",
+			Usage: "Flat one-line-per-element output instead of a JSON tree",
+		},
+		&cli.StringFlag{
+			Name:  "find",
+			Usage: "Only show elements whose type/id/text contains this substring (case-insensitive)",
 		},
 	},
 	Action: runHierarchy,
@@ -79,20 +92,114 @@ func runStartDevice(c *cli.Context) error {
 }
 
 func runHierarchy(c *cli.Context) error {
-	device := c.String("device")
+	runDevice := c.String("device")
 	compact := c.Bool("compact")
+	find := c.String("find")
 
-	// TODO: Implement hierarchy dump
-	fmt.Println("Hierarchy command received:")
-	if device != "" {
-		fmt.Printf("  Device: %s\n", device)
-	}
-	if compact {
-		fmt.Println("  Format: CSV")
-	} else {
-		fmt.Println("  Format: JSON")
+	// Status goes to stderr (logger) so stdout carries only the hierarchy —
+	// keeps `maestro-runner hierarchy | jq` / `> tree.json` clean.
+	if runDevice != "" {
+		logger.Info("Capturing hierarchy from device: %s", runDevice)
 	}
 
-	fmt.Println("\n[Not yet implemented - will dump view hierarchy]")
+	// Helper to get flag value from current or parent context
+	// When run as subcommand, global flags are in parent context
+	// NOTE: This are duplicated from pkg/cli/test.go, may want to refactor
+	getString := func(name string) string {
+		if c.IsSet(name) {
+			return c.String(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].String(name)
+		}
+		return c.String(name)
+	}
+	getInt := func(name string) int {
+		if c.IsSet(name) {
+			return c.Int(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].Int(name)
+		}
+		return c.Int(name)
+	}
+	getBool := func(name string) bool {
+		if c.IsSet(name) {
+			return c.Bool(name)
+		}
+		if c.Lineage()[1] != nil {
+			return c.Lineage()[1].Bool(name)
+		}
+		return c.Bool(name)
+	}
+
+	// Load Appium capabilities if provided
+	capsFile := getString("caps")
+	var caps map[string]interface{}
+	if capsFile != "" {
+		var err error
+		caps, err = loadCapabilities(capsFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Build run configuration, limited to elements relevant to hierarchy subcommand
+	cfg := &RunConfig{
+		Headed:             getBool("headed"),
+		Browser:            getString("browser"),
+		UserDataDir:        getString("user-data-dir"),
+		Platform:           getString("platform"),
+		Devices:            parseDevices(getString("device")),
+		Driver:             getString("driver"),
+		AppiumURL:          getString("appium-url"),
+		AppiumSessionFile:  getString("appium-session-file"),
+		CapsFile:           capsFile,
+		Capabilities:       caps,
+		TeamID:             getString("team-id"),
+		WDABundleID:        getString("wda-bundle-id"),
+		StartEmulator:      getString("start-emulator"),
+		StartSimulator:     getString("start-simulator"),
+		AutoStartEmulator:  getBool("auto-start-emulator"),
+		BootTimeout:        getInt("boot-timeout"),
+		DriverStartTimeout: getInt("driver-start-timeout"),
+		NoDriverInstall:    getBool("no-driver-install"),
+		NoFlutterFallback:  getBool("no-flutter-fallback"),
+		AndroidTCPForward:  getBool("android-tcp-forward"),
+	}
+
+	// Driver setup and teardown print progress to stdout; redirect that to
+	// stderr so stdout carries only the hierarchy and stays pipe-clean
+	// (hierarchy | jq / > tree.json).
+	realStdout := os.Stdout
+	os.Stdout = os.Stderr
+
+	driver, cleanup, err := CreateDriver(cfg)
+	if err != nil {
+		os.Stdout = realStdout
+		// Surface NoDevicesError directly so its helpful message isn't buried;
+		// otherwise wrap. Either way return the error so the command exits
+		// non-zero (matches `test`) instead of silently succeeding.
+		var noDevErr *device.NoDevicesError
+		if errors.As(err, &noDevErr) {
+			return noDevErr
+		}
+		return fmt.Errorf("failed to create driver: %w", err)
+	}
+	defer func() { os.Stdout = os.Stderr; cleanup(); os.Stdout = realStdout }()
+
+	raw, err := driver.Hierarchy()
+	os.Stdout = realStdout
+	if err != nil {
+		return fmt.Errorf("failed to get hierarchy: %w", err)
+	}
+
+	// Normalize the driver's platform-specific output (Android/iOS XML or the
+	// devicelab JSON) into one consistent tree, then render.
+	out, err := formatHierarchy(raw, compact, find)
+	if err != nil {
+		return fmt.Errorf("format hierarchy: %w", err)
+	}
+	fmt.Println(out)
 	return nil
 }
