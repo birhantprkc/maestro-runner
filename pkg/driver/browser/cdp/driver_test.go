@@ -2249,12 +2249,12 @@ func TestIsNonRenderableTagDirect(t *testing.T) {
 		want     bool
 	}
 	for _, tt := range []c{
-		{"#t", true},   // <title>
-		{"#s", true},   // <script>
-		{"#y", true},   // <style>
-		{"#m", true},   // <meta>
-		{"#l", true},   // <link>
-		{"#b", false},  // <button> — should be renderable
+		{"#t", true},  // <title>
+		{"#s", true},  // <script>
+		{"#y", true},  // <style>
+		{"#m", true},  // <meta>
+		{"#l", true},  // <link>
+		{"#b", false}, // <button> — should be renderable
 		{"body", false},
 	} {
 		elem, err := d.page.Element(tt.selector)
@@ -2532,10 +2532,11 @@ func TestExecuteUnknownStepType(t *testing.T) {
 // unknownStep implements flow.Step for testing the default Execute branch.
 type unknownStep struct{}
 
-func (s *unknownStep) Type() flow.StepType { return "unknown" }
-func (s *unknownStep) IsOptional() bool    { return false }
-func (s *unknownStep) Label() string       { return "" }
-func (s *unknownStep) Describe() string    { return "unknown step" }
+func (s *unknownStep) Type() flow.StepType  { return "unknown" }
+func (s *unknownStep) IsOptional() bool     { return false }
+func (s *unknownStep) Label() string        { return "" }
+func (s *unknownStep) Describe() string     { return "unknown step" }
+func (s *unknownStep) PlatformGate() string { return "" }
 
 func TestWaitUntilTimeout(t *testing.T) {
 	ts := newTestServer()
