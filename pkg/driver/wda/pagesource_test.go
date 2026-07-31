@@ -380,7 +380,7 @@ func TestLooksLikeRegex(t *testing.T) {
 		{"{3,5}", true},
 		{"a|b", true},
 		{"plain text", false},
-		{"hello\\.", false},             // escaped dot
+		{"hello\\.", true},              // escaped dot is regex syntax (#136)
 		{"mastodon.social", false},      // domain name
 		{"Join mastodon.social", false}, // button text with domain
 		{"v1.2.3", false},               // version number

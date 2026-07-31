@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -903,9 +905,19 @@ func TestAddMediaNoFiles(t *testing.T) {
 }
 
 func TestAddMediaSuccess(t *testing.T) {
+	// addMedia stats + pushes real files, so create them on disk.
+	dir := t.TempDir()
+	f1 := filepath.Join(dir, "file.jpg")
+	f2 := filepath.Join(dir, "file2.png")
+	for _, f := range []string{f1, f2} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	mock := &MockShellExecutor{response: "Success"}
 	driver := &Driver{device: mock}
-	step := &flow.AddMediaStep{Files: []string{"/path/to/file.jpg", "/path/to/file2.png"}}
+	step := &flow.AddMediaStep{Files: []string{f1, f2}}
 
 	result := driver.addMedia(step)
 
@@ -913,8 +925,14 @@ func TestAddMediaSuccess(t *testing.T) {
 		t.Errorf("expected success, got error: %v", result.Error)
 	}
 
-	if len(mock.commands) != 2 {
-		t.Errorf("expected 2 commands, got %d", len(mock.commands))
+	// One push per file, each landing under the images media dir.
+	if len(mock.pushes) != 2 {
+		t.Fatalf("expected 2 pushes, got %d", len(mock.pushes))
+	}
+	for i, p := range mock.pushes {
+		if !strings.HasPrefix(p[1], "/sdcard/Pictures/MaestroRunner/") {
+			t.Errorf("push %d remote = %q, want under images dir", i, p[1])
+		}
 	}
 }
 

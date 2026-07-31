@@ -198,6 +198,7 @@ func (m *MockUIA2Client) SetAppiumSettings(settings map[string]interface{}) erro
 
 type MockShellExecutor struct {
 	commands       []string
+	pushes         [][2]string // {local, remote} pairs recorded by Push
 	response       string
 	err            error
 	screenshotData []byte
@@ -207,6 +208,13 @@ type MockShellExecutor struct {
 func (m *MockShellExecutor) Shell(cmd string) (string, error) {
 	m.commands = append(m.commands, cmd)
 	return m.response, m.err
+}
+
+// Push records a file push so addMedia (which requires a Push-capable device)
+// can be exercised without real adb.
+func (m *MockShellExecutor) Push(local, remote string) error {
+	m.pushes = append(m.pushes, [2]string{local, remote})
+	return m.err
 }
 
 func (m *MockShellExecutor) Screenshot() ([]byte, error) {
@@ -292,7 +300,9 @@ func TestLooksLikeRegex(t *testing.T) {
 		{"Hello World", false},          // Plain text with space
 		{"Hello_World", false},          // Plain text with underscore
 		{"Login123", false},             // Alphanumeric
-		{`\.escaped`, false},            // Escaped dot
+		{`\.escaped`, true},             // Escaped dot is regex syntax (#136)
+		{`\$0.00`, true},                // Escaped dollar — user wants regex match (#136)
+		{`example\.com`, true},          // Escaped dot in a domain is regex (#136)
 		{"mastodon.social", false},      // Domain name - period is literal
 		{"Join mastodon.social", false}, // Button text with domain
 		{"user@example.com", false},     // Email address (literal)

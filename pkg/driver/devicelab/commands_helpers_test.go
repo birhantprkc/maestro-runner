@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -362,6 +364,13 @@ type trackingClient struct {
 	setOrientErr   error
 	backErr        error
 	pressKeyErr    error
+	addMediaNames  []string
+	addMediaErr    error
+}
+
+func (t *trackingClient) AddMedia(name, mime string, data []byte) error {
+	t.addMediaNames = append(t.addMediaNames, name)
+	return t.addMediaErr
 }
 
 func newTrackingClient() *trackingClient {
@@ -614,19 +623,25 @@ func TestOpenBrowser(t *testing.T) {
 }
 
 func TestAddMedia(t *testing.T) {
-	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{}, shell)
-	res := driver.addMedia(&flow.AddMediaStep{Files: []string{"/sdcard/a.jpg", "/sdcard/b.mp4"}})
+	// addMedia now streams file bytes to the agent via client.AddMedia, so the
+	// files must exist on disk.
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.jpg")
+	b := filepath.Join(dir, "b.mp4")
+	for _, f := range []string{a, b} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	client := newTrackingClient()
+	driver := New(client, &core.PlatformInfo{}, &mockShell{})
+	res := driver.addMedia(&flow.AddMediaStep{Files: []string{a, b}})
 	if !res.Success {
 		t.Fatalf("addMedia failed: %v", res.Error)
 	}
-	if len(shell.commands) != 2 {
-		t.Errorf("expected 2 broadcast commands, got %d", len(shell.commands))
-	}
-	for _, c := range shell.commands {
-		if !strings.Contains(c, "MEDIA_SCANNER_SCAN_FILE") {
-			t.Errorf("expected MEDIA_SCANNER_SCAN_FILE, got: %s", c)
-		}
+	if got := client.addMediaNames; len(got) != 2 || got[0] != "a.jpg" || got[1] != "b.mp4" {
+		t.Errorf("expected AddMedia(a.jpg), AddMedia(b.mp4), got %v", got)
 	}
 
 	// Empty file list
@@ -1315,7 +1330,7 @@ func TestLooksLikeRegex(t *testing.T) {
 		{"end]", true},         // ]
 		{"group()", true},      // (
 		{"alt|alt", true},      // |
-		{"\\.escaped", false},  // escaped dot
+		{"\\.escaped", true},   // escaped dot is regex syntax (#136)
 		{"", false},
 	}
 	for _, c := range cases {
