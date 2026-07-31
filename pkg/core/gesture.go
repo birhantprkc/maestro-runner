@@ -61,3 +61,31 @@ func SwipeCoordsInBounds(direction string, b Bounds, screenW, screenH int) (star
 		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
 	}
 }
+
+// DirectionSwipeScreenCoords returns start/end coordinates for a screen swipe
+// covering `distance` fraction of the screen dimension, centered on screen.
+// distance is clamped to (0,1]; a non-positive value defaults to 0.5. Used when
+// a `swipe:` specifies an explicit `distance:` so callers control travel.
+func DirectionSwipeScreenCoords(direction string, w, h int, distance float64) (startX, startY, endX, endY int, err error) {
+	if distance <= 0 {
+		distance = 0.5
+	}
+	if distance > 1 {
+		distance = 1
+	}
+	cx, cy := w/2, h/2
+	dx := int(float64(w) * distance / 2)
+	dy := int(float64(h) * distance / 2)
+	switch direction {
+	case "up":
+		return cx, cy + dy, cx, cy - dy, nil
+	case "down":
+		return cx, cy - dy, cx, cy + dy, nil
+	case "left":
+		return cx + dx, cy, cx - dx, cy, nil
+	case "right":
+		return cx - dx, cy, cx + dx, cy, nil
+	default:
+		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
+	}
+}

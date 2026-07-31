@@ -222,6 +222,7 @@ type SwipeStep struct {
 	EndY                  int       `yaml:"endY"`     // Absolute Y end
 	Duration              int       `yaml:"duration"` // Duration in ms
 	Speed                 int       `yaml:"speed"`    // Speed 0-100
+	Distance              float64   `yaml:"distance"` // Fraction of screen (0-1) for direction swipes; 0 = default
 	WaitToSettleTimeoutMs int       `yaml:"waitToSettleTimeoutMs"`
 }
 

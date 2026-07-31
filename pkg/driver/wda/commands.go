@@ -558,29 +558,54 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 		// UP:    centered horizontally, 90%→10% of height
 		// DOWN:  centered horizontally, 20%→90% of height
 		dir := strings.ToLower(step.Direction)
-		switch dir {
-		case "up":
-			fromX = areaX + areaW*0.5
-			fromY = areaY + areaH*0.9
-			toX = areaX + areaW*0.5
-			toY = areaY + areaH*0.1
-		case "down":
-			fromX = areaX + areaW*0.5
-			fromY = areaY + areaH*0.2
-			toX = areaX + areaW*0.5
-			toY = areaY + areaH*0.9
-		case "left":
-			fromX = areaX + areaW*0.9
-			fromY = areaY + areaH*0.5
-			toX = areaX + areaW*0.1
-			toY = areaY + areaH*0.5
-		case "right":
-			fromX = areaX + areaW*0.1
-			fromY = areaY + areaH*0.5
-			toX = areaX + areaW*0.9
-			toY = areaY + areaH*0.5
-		default:
-			return errorResult(fmt.Errorf("invalid direction: %s", step.Direction), "Invalid swipe direction")
+		if step.Distance > 0 {
+			// Explicit distance: centered swipe covering that fraction of the
+			// area (screen or the anchored element's bounds).
+			frac := step.Distance
+			if frac > 1 {
+				frac = 1
+			}
+			cx := areaX + areaW*0.5
+			cy := areaY + areaH*0.5
+			dxp := areaW * frac / 2
+			dyp := areaH * frac / 2
+			switch dir {
+			case "up":
+				fromX, fromY, toX, toY = cx, cy+dyp, cx, cy-dyp
+			case "down":
+				fromX, fromY, toX, toY = cx, cy-dyp, cx, cy+dyp
+			case "left":
+				fromX, fromY, toX, toY = cx+dxp, cy, cx-dxp, cy
+			case "right":
+				fromX, fromY, toX, toY = cx-dxp, cy, cx+dxp, cy
+			default:
+				return errorResult(fmt.Errorf("invalid direction: %s", step.Direction), "Invalid swipe direction")
+			}
+		} else {
+			switch dir {
+			case "up":
+				fromX = areaX + areaW*0.5
+				fromY = areaY + areaH*0.9
+				toX = areaX + areaW*0.5
+				toY = areaY + areaH*0.1
+			case "down":
+				fromX = areaX + areaW*0.5
+				fromY = areaY + areaH*0.2
+				toX = areaX + areaW*0.5
+				toY = areaY + areaH*0.9
+			case "left":
+				fromX = areaX + areaW*0.9
+				fromY = areaY + areaH*0.5
+				toX = areaX + areaW*0.1
+				toY = areaY + areaH*0.5
+			case "right":
+				fromX = areaX + areaW*0.1
+				fromY = areaY + areaH*0.5
+				toX = areaX + areaW*0.9
+				toY = areaY + areaH*0.5
+			default:
+				return errorResult(fmt.Errorf("invalid direction: %s", step.Direction), "Invalid swipe direction")
+			}
 		}
 	}
 

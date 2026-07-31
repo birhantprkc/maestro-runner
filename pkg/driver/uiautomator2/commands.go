@@ -651,6 +651,14 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 	if err != nil {
 		return errorResult(err, "Failed to get screen size")
 	}
+	// An explicit `distance:` controls how far the centered swipe travels.
+	if step.Distance > 0 {
+		sx, sy, ex, ey, derr := core.DirectionSwipeScreenCoords(direction, width, height, step.Distance)
+		if derr != nil {
+			return errorResult(derr, fmt.Sprintf("Invalid swipe direction: %s", step.Direction))
+		}
+		return d.swipeWithAbsoluteCoords(sx, sy, ex, ey, step.Duration)
+	}
 	return d.swipeWithMaestroCoordinates(direction, width, height, step.Duration)
 }
 

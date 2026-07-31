@@ -100,3 +100,24 @@ func TestSwipeCoordsInBounds_InvalidDirection(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectionSwipeScreenCoords(t *testing.T) {
+	// distance 0.5 on a 1000x1000 screen → centered swipe of 500px total.
+	sx, sy, ex, ey, err := DirectionSwipeScreenCoords("up", 1000, 1000, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sx != 500 || sy != 750 || ex != 500 || ey != 250 {
+		t.Errorf("up 0.5 = (%d,%d)->(%d,%d), want (500,750)->(500,250)", sx, sy, ex, ey)
+	}
+	// distance clamps: 0 defaults to 0.5, >1 clamps to 1.
+	if _, _, _, ey0, _ := DirectionSwipeScreenCoords("up", 1000, 1000, 0); ey0 != 250 {
+		t.Errorf("distance 0 should default to 0.5")
+	}
+	if _, _, _, ey1, _ := DirectionSwipeScreenCoords("up", 1000, 1000, 2); ey1 != 0 {
+		t.Errorf("distance 2 should clamp to full screen, ey=%d", ey1)
+	}
+	if _, _, _, _, err := DirectionSwipeScreenCoords("sideways", 100, 100, 0.5); err == nil {
+		t.Error("invalid direction should error")
+	}
+}

@@ -730,6 +730,27 @@ func (d *Driver) resolveSwipeCoords(s *flow.SwipeStep) (float64, float64, float6
 			areaH = node.Rect.Height
 		}
 	}
+	if s.Distance > 0 {
+		// Explicit distance: centered swipe covering that fraction of the area.
+		frac := s.Distance
+		if frac > 1 {
+			frac = 1
+		}
+		cx, cy := areaX+areaW*0.5, areaY+areaH*0.5
+		dxp, dyp := areaW*frac/2, areaH*frac/2
+		switch strings.ToLower(s.Direction) {
+		case "up":
+			return cx, cy + dyp, cx, cy - dyp, nil
+		case "down":
+			return cx, cy - dyp, cx, cy + dyp, nil
+		case "left":
+			return cx + dxp, cy, cx - dxp, cy, nil
+		case "right":
+			return cx - dxp, cy, cx + dxp, cy, nil
+		default:
+			return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", s.Direction)
+		}
+	}
 	switch strings.ToLower(s.Direction) {
 	case "up":
 		return areaX + areaW*0.5, areaY + areaH*0.9, areaX + areaW*0.5, areaY + areaH*0.1, nil
