@@ -34,6 +34,8 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 	switch s := step.(type) {
 	case *flow.LaunchAppStep:
 		return d.handleLaunchApp(s)
+	case *flow.ClearStateStep:
+		return d.handleClearState(s.AppID)
 	case *flow.StopAppStep:
 		return d.handleStopApp(s)
 	case *flow.TapOnStep:
@@ -99,6 +101,13 @@ func (d *Driver) handleLaunchApp(s *flow.LaunchAppStep) *core.CommandResult {
 		return core.ErrorResult(fmt.Errorf("launchApp requires appId"), "missing appId")
 	}
 	d.appID = bid
+
+	// clearState: uninstall+reinstall to reset the app before launch.
+	if s.ClearState {
+		if res := d.handleClearState(bid); !res.Success {
+			return res
+		}
+	}
 
 	if s.StopApp != nil && *s.StopApp {
 		_ = exec.Command("xcrun", "simctl", "terminate", d.udid, bid).Run()
