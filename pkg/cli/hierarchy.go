@@ -14,12 +14,21 @@ import (
 // devicelab flat-JSON snapshot); we normalize them all to this shape so the
 // `hierarchy` command's output is consistent and pipe/diff-friendly.
 type hNode struct {
-	Type     string   `json:"type,omitempty"`
-	ID       string   `json:"id,omitempty"`
-	Text     string   `json:"text,omitempty"`
-	Bounds   *hBounds `json:"bounds,omitempty"`
-	Children []hNode  `json:"children,omitempty"`
+	Type   string   `json:"type,omitempty"`
+	ID     string   `json:"id,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	Bounds *hBounds `json:"bounds,omitempty"`
+	// Element states, emitted only when notable so the tree stays uncluttered:
+	// Enabled is set false only when disabled; Checked only for checkable
+	// elements; Selected/Focused only when true.
+	Enabled  *bool   `json:"enabled,omitempty"`
+	Checked  *bool   `json:"checked,omitempty"`
+	Selected *bool   `json:"selected,omitempty"`
+	Focused  *bool   `json:"focused,omitempty"`
+	Children []hNode `json:"children,omitempty"`
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 type hBounds struct {
 	X      int `json:"x"`
@@ -102,6 +111,9 @@ func parseFlatJSON(raw []byte) (hNode, error) {
 			Identifier  string  `json:"identifier"`
 			Value       string  `json:"value"`
 			Rect        hBounds `json:"rect"`
+			Enabled     bool    `json:"enabled"`
+			Focused     *bool   `json:"focused"`
+			Selected    *bool   `json:"selected"`
 			ParentIndex *int    `json:"parentIndex"`
 		} `json:"nodes"`
 	}
@@ -117,7 +129,17 @@ func parseFlatJSON(raw []byte) (hNode, error) {
 			text = n.Value
 		}
 		b := n.Rect
-		built[i] = hNode{Type: n.Type, ID: n.Identifier, Text: text, Bounds: &b}
+		node := hNode{Type: n.Type, ID: n.Identifier, Text: text, Bounds: &b}
+		if !n.Enabled {
+			node.Enabled = boolPtr(false)
+		}
+		if n.Focused != nil && *n.Focused {
+			node.Focused = boolPtr(true)
+		}
+		if n.Selected != nil && *n.Selected {
+			node.Selected = boolPtr(true)
+		}
+		built[i] = node
 	}
 	var roots []hNode
 	// Attach children to parents. Because Go slices copy by value, assemble
@@ -205,6 +227,18 @@ func convertXML(n rawXML, android bool) hNode {
 			out.Text = n.attr("content-desc")
 		}
 		out.Bounds = parseAndroidBounds(n.attr("bounds"))
+		if n.attr("enabled") == "false" {
+			out.Enabled = boolPtr(false)
+		}
+		if n.attr("checkable") == "true" {
+			out.Checked = boolPtr(n.attr("checked") == "true")
+		}
+		if n.attr("selected") == "true" {
+			out.Selected = boolPtr(true)
+		}
+		if n.attr("focused") == "true" {
+			out.Focused = boolPtr(true)
+		}
 	} else {
 		// iOS WDA: the element tag name is the type; attrs carry name/label.
 		out.Type = strings.TrimPrefix(n.XMLName.Local, "XCUIElementType")
@@ -217,6 +251,12 @@ func convertXML(n rawXML, android bool) hNode {
 			out.Text = n.attr("value")
 		}
 		out.Bounds = parseWDABounds(n)
+		if n.attr("enabled") == "false" {
+			out.Enabled = boolPtr(false)
+		}
+		if n.attr("selected") == "true" {
+			out.Selected = boolPtr(true)
+		}
 	}
 	for _, c := range n.Children {
 		out.Children = append(out.Children, convertXML(c, android))
@@ -308,6 +348,22 @@ func compactLine(n hNode, depth int) string {
 	}
 	if n.Bounds != nil {
 		b.WriteString(fmt.Sprintf("  (%d,%d %dx%d)", n.Bounds.X, n.Bounds.Y, n.Bounds.Width, n.Bounds.Height))
+	}
+	if n.Enabled != nil && !*n.Enabled {
+		b.WriteString("  [disabled]")
+	}
+	if n.Checked != nil {
+		if *n.Checked {
+			b.WriteString("  [checked]")
+		} else {
+			b.WriteString("  [unchecked]")
+		}
+	}
+	if n.Selected != nil && *n.Selected {
+		b.WriteString("  [selected]")
+	}
+	if n.Focused != nil && *n.Focused {
+		b.WriteString("  [focused]")
 	}
 	return b.String()
 }

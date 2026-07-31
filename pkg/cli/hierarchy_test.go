@@ -76,6 +76,38 @@ func TestFormatHierarchy_Compact(t *testing.T) {
 	}
 }
 
+const androidStatesXML = `<?xml version="1.0"?>
+<hierarchy>
+  <node class="android.widget.Button" resource-id="submit" text="Submit" enabled="false" checkable="false" bounds="[0,0][100,50]"/>
+  <node class="android.widget.CheckBox" resource-id="agree" text="Agree" enabled="true" checkable="true" checked="true" bounds="[0,60][100,110]"/>
+  <node class="android.widget.EditText" resource-id="name" text="" enabled="true" focused="true" bounds="[0,120][100,170]"/>
+</hierarchy>`
+
+func TestFormatHierarchy_States(t *testing.T) {
+	// JSON: disabled button, checked checkbox, focused field.
+	out, err := formatHierarchy([]byte(androidStatesXML), false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"enabled": false`, `"checked": true`, `"focused": true`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("states JSON missing %q\n%s", want, out)
+		}
+	}
+	// An enabled, non-checkable element must not emit noise fields.
+	if strings.Contains(out, `"checked": false`) && !strings.Contains(out, "agree") {
+		t.Errorf("unexpected checked:false on non-checkable element")
+	}
+
+	// Compact: state flags appear as tags.
+	comp, _ := formatHierarchy([]byte(androidStatesXML), true, "")
+	for _, want := range []string{"[disabled]", "[checked]", "[focused]"} {
+		if !strings.Contains(comp, want) {
+			t.Errorf("compact missing state tag %q\n%s", want, comp)
+		}
+	}
+}
+
 func TestFormatHierarchy_Find(t *testing.T) {
 	out, err := formatHierarchy([]byte(androidXML), false, "sign in")
 	if err != nil {
