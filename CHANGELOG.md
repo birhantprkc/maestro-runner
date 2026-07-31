@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.22] - 2026-07-31
+
+The headline is the community-contributed **`hierarchy` subcommand** — dump the on-device view hierarchy, normalized to one JSON tree across every driver — and **`addMedia` working on all platforms**, including real iOS devices via on-device PhotoKit (a capability beyond stock Maestro). Alongside them: a `swipe` distance parameter, deeper iOS snapshots for React Native trees, and a batch of correctness fixes — escaped-metacharacter `text:` selectors, `${VAR}` expansion in device-control steps, `#`/Shift typing on DeviceLab Android, DeviceLab iOS `clearState`, and transient WebView/CDP retries.
+
+### Added
+- **`hierarchy` subcommand** — dump the current on-device view hierarchy for selector discovery and debugging. Drivers return platform-specific formats (Android UIAutomator XML, iOS WDA XML, DeviceLab flat-JSON); the command normalizes all of them to one consistent JSON tree, so output is stable and diffable across drivers. `--compact` prints a flat, greppable one-line-per-element listing; `--find <substr>` filters to elements whose type/id/text match; element states surface as `[disabled]`/`[checked]`/`[selected]`/`[focused]`. Stdout carries only the hierarchy (driver setup goes to stderr), so it pipes cleanly into `jq` or a file.
+  ```bash
+  maestro-runner --device <id> hierarchy --compact --find login
+  ```
+  Contributed by [@zcsteele](https://github.com/zcsteele) ([#134](https://github.com/devicelab-dev/maestro-runner/pull/134)).
+- **`addMedia` on every platform** — inject photos/videos into the device gallery before a flow. Reimplemented per platform, each device-validated: Android DeviceLab (on-device agent MediaStore insert, `IS_PENDING` scoped-storage flow), Android UIAutomator2 (adb push + `content scan_file` registration), iOS Simulator (`xcrun simctl addmedia`), and **iOS real device** (on-device PhotoKit `PHAssetCreationRequest`). Real-device iOS is not available in stock Maestro. The previous implementation fired a deprecated `MEDIA_SCANNER_SCAN_FILE` broadcast on a host path and reported success without adding anything.
+  ```yaml
+  - addMedia:
+      - assets/photo.png
+      - assets/clip.mp4
+  ```
+- **`swipe` distance parameter** — a direction swipe accepts `distance:` for a centered, fixed-length gesture instead of the default edge-to-edge travel. Mirrors Maestro #949.
+  ```yaml
+  - swipe:
+      direction: UP
+      distance: 0.4   # fraction of the screen (0-1), centered; default 0.5
+  ```
+- **Deeper iOS snapshots** — override XCTest's clipped snapshot request params (`maxDepth`/`maxChildren`, `snapshotKeyHonorModalViews=0`) so deep React Native trees and modal-obscured content are captured, fixing missing elements on RN-heavy screens.
+
+### Fixed
+- **Android: a `text:` selector escaping only metacharacters never matched** — `looksLikeRegex` skipped any backslash-escaped character when classifying a pattern, so an escape-only regex like `example\.com` or `\$0.00` was treated as a literal string and the backslashes were matched verbatim — it could only hit an element whose text literally contained a backslash. Upstream Maestro treats `text:` as always-regex, where `\.` / `\$` is the normal way to match a literal `.` / `$`. An escaped metacharacter now classifies the whole pattern as a regex (`textMatches`), fixed across all four matcher paths (UIAutomator2, DeviceLab, Appium, WDA). Reported by [@nixit28](https://github.com/nixit28) ([#136](https://github.com/devicelab-dev/maestro-runner/issues/136)).
+- **`${VAR}` was not expanded in several device-control steps** — variable expansion runs off a per-step allowlist, and `setOrientation`, `setLocation`, `setClipboard`, `swipe`, `scroll`, and `openBrowser` were missing from it, so `setOrientation: ${ORIENT}` reached the driver as the literal `${ORIENT}` and failed with `invalid orientation`. Those steps now expand their value fields (both shorthand and long form, top-level and inside `runFlow`). Reported by [@nixit28](https://github.com/nixit28) ([#137](https://github.com/devicelab-dev/maestro-runner/issues/137)).
+- **`addMedia:` bare-sequence lists failed to parse** — a `addMedia:` given a plain YAML sequence of paths failed to unmarshal. Reported by [@kacperzolkiewski](https://github.com/kacperzolkiewski) ([#131](https://github.com/devicelab-dev/maestro-runner/issues/131)).
+- **DeviceLab Android: `#` and other Shift characters were dropped when typing** — `inputText` synthesized key events without honoring the shifted layout, so characters requiring Shift (`#`, `$`, `@`, …) never landed. Typing now goes through `KeyCharacterMap`, turning each character into the correct key-event sequence. Reported by [@kacperzolkiewski](https://github.com/kacperzolkiewski) ([#132](https://github.com/devicelab-dev/maestro-runner/issues/132), also [#135](https://github.com/devicelab-dev/maestro-runner/issues/135)).
+- **DeviceLab iOS: `clearState` was a silent no-op** — `clearState` (and `launchApp` with `clearState: true`) claimed success without resetting the app. It now stages the app container, uninstalls, and reinstalls on the simulator so state is genuinely cleared.
+- **Web: transient CDP execution-context errors during element finding are retried** — a Chrome DevTools "execution context was destroyed" error thrown mid-navigation no longer fails the step; the finder retries once the context settles.
+- **`${VAR}` in `assertScreenshot` threshold and permission values** — `thresholdPercentage` and `launchApp` / `setPermissions` permission entries now expand variables, and `assertScreenshot` baseline/diff paths that escape the workspace are rejected.
+
+### Contributors
+
+[@zcsteele](https://github.com/zcsteele)
+1. Contributed the `hierarchy` subcommand ([#134](https://github.com/devicelab-dev/maestro-runner/pull/134))
+
+[@kacperzolkiewski](https://github.com/kacperzolkiewski)
+1. Reported the `addMedia` parse error ([#131](https://github.com/devicelab-dev/maestro-runner/issues/131))
+2. Reported `#`/Shift characters being dropped on DeviceLab Android ([#132](https://github.com/devicelab-dev/maestro-runner/issues/132))
+
+[@nixit28](https://github.com/nixit28)
+1. Reported escaped-metacharacter `text:` selectors never matching ([#136](https://github.com/devicelab-dev/maestro-runner/issues/136))
+2. Reported `${VAR}` not expanding in `setOrientation` ([#137](https://github.com/devicelab-dev/maestro-runner/issues/137))
+
 ## [1.1.21] - 2026-07-28
 
 The headline is **`assertScreenshot`** — visual regression testing with a highlighted diff image — contributed by the community. Alongside it: two regressions from v1.1.20 fixed (the keyboard-blocking guard on both Android drivers), a correctness fix where iOS `id:` + `text:` silently degraded to an OR, clearer failures when an app crashes mid-flow, correct WDA ports for legacy iOS UDIDs in parallel runs, and step-level `platform:` conditions.
