@@ -754,6 +754,27 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		for k, v := range s.Env {
 			s.Env[k] = se.ExpandVariables(v)
 		}
+	// Device-control / gesture steps: string value fields were missing from
+	// this allowlist, so `${VAR}` reached the driver verbatim (e.g.
+	// setOrientation: ${VAR} → "invalid orientation", #137).
+	case *flow.SetOrientationStep:
+		s.Orientation = se.ExpandVariables(s.Orientation)
+	case *flow.SetLocationStep:
+		s.Latitude = se.ExpandVariables(s.Latitude)
+		s.Longitude = se.ExpandVariables(s.Longitude)
+	case *flow.SetClipboardStep:
+		s.Text = se.ExpandVariables(s.Text)
+	case *flow.SwipeStep:
+		s.Direction = se.ExpandVariables(s.Direction)
+		s.Start = se.ExpandVariables(s.Start)
+		s.End = se.ExpandVariables(s.End)
+		if s.Selector != nil {
+			s.Selector = se.expandSelector(s.Selector)
+		}
+	case *flow.ScrollStep:
+		s.Direction = se.ExpandVariables(s.Direction)
+	case *flow.OpenBrowserStep:
+		s.URL = se.ExpandVariables(s.URL)
 	}
 }
 

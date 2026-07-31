@@ -2508,3 +2508,34 @@ func TestExecuteRepeat_WhileInterpolation(t *testing.T) {
 		}
 	}
 }
+
+func TestScriptEngine_ExpandStep_DeviceControlFields(t *testing.T) {
+	se := NewScriptEngine()
+	defer se.Close()
+	se.SetVariable("ORIENT", "LANDSCAPE_LEFT")
+	se.SetVariable("LAT", "37.7")
+	se.SetVariable("LON", "-122.4")
+	se.SetVariable("DIR", "UP")
+	se.SetVariable("CLIP", "hello")
+
+	orient := &flow.SetOrientationStep{Orientation: "${ORIENT}"}
+	se.ExpandStep(orient)
+	if orient.Orientation != "LANDSCAPE_LEFT" {
+		t.Errorf("setOrientation not expanded: %q", orient.Orientation)
+	}
+	loc := &flow.SetLocationStep{Latitude: "${LAT}", Longitude: "${LON}"}
+	se.ExpandStep(loc)
+	if loc.Latitude != "37.7" || loc.Longitude != "-122.4" {
+		t.Errorf("setLocation not expanded: %q,%q", loc.Latitude, loc.Longitude)
+	}
+	sw := &flow.SwipeStep{Direction: "${DIR}"}
+	se.ExpandStep(sw)
+	if sw.Direction != "UP" {
+		t.Errorf("swipe direction not expanded: %q", sw.Direction)
+	}
+	clip := &flow.SetClipboardStep{Text: "${CLIP}"}
+	se.ExpandStep(clip)
+	if clip.Text != "hello" {
+		t.Errorf("setClipboard not expanded: %q", clip.Text)
+	}
+}
