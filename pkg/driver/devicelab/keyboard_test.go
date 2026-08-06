@@ -33,10 +33,15 @@ func TestKeyboardStillCovering(t *testing.T) {
 		{"covered on first frame after typing", elementCenteredAtY(1627), keyboard, true},
 		{"clear after ADJUST_RESIZE relayout", elementCenteredAtY(1400), keyboard, false},
 		{"keyboard dismissed mid-settle", elementCenteredAtY(1627), nil, false},
-		// The 50px suggestion-strip margin: at keyboard.Y+margin is covered…
-		{"at margin boundary", elementCenteredAtY(1610), keyboard, true},
-		// …one pixel above the margin is still tappable.
-		{"just above margin", elementCenteredAtY(1609), keyboard, false},
+		// The boundary is the keyboard's reported top, with no slack: the IME
+		// consumes touches across its whole touchable region, suggestion strip
+		// included. A 50px margin here used to wave through taps that the
+		// keyboard actually swallowed (#139); uiautomator2 never had one.
+		{"exactly at keyboard top is covered", elementCenteredAtY(1560), keyboard, true},
+		{"one pixel above the keyboard is tappable", elementCenteredAtY(1559), keyboard, false},
+		// The #139 geometry itself, scaled to this fixture's keyboard top:
+		// 11px into the region — inside the old margin, genuinely covered.
+		{"just inside the region is covered", elementCenteredAtY(1571), keyboard, true},
 	}
 
 	for _, tc := range cases {
@@ -162,10 +167,44 @@ func TestSettleKeyboardBlocking_PersistentOverlapFails(t *testing.T) {
 	}
 }
 
-func TestCheckKeyboardBlocking_SkipsWhenPreviousStepWasNotInput(t *testing.T) {
+func TestCheckKeyboardBlocking_SkipsWhenKeyboardIsDown(t *testing.T) {
+	// No shell → getKeyboardBounds() is nil → keyboard is down, so a tap that
+	// didn't follow an input step skips the check and costs nothing.
 	d := &Driver{client: &mockDeviceLabClient{}}
 	if res := d.checkKeyboardBlocking(false, flow.Selector{ID: "android:id/button1"}); res != nil {
-		t.Errorf("check must not apply after a non-input step, got %+v", res)
+		t.Errorf("check must not apply while the keyboard is down, got %+v", res)
+	}
+}
+
+// TestCheckKeyboardBlocking_RunsWhenKeyboardUpWithoutPriorInput is the #139
+// regression. The keyboard can be up because a field auto-focused on screen
+// entry, not because the previous step typed. The old `if !wasInput { return }`
+// gate skipped the check entirely in that case, so the coordinate tap landed on
+// the keyboard and the following inputText — which injects global key events —
+// typed into whatever still held focus, with both steps reporting success.
+//
+// Asserting on the dumpsys call is the precise test of the gate: before the fix,
+// wasInput=false returned before touching the shell at all. Whether a covered
+// element then fails is settleKeyboardBlocking's job, covered above.
+func TestCheckKeyboardBlocking_RunsWhenKeyboardUpWithoutPriorInput(t *testing.T) {
+	shrinkSettleWindow(t, 100*time.Millisecond)
+
+	// Keyboard across the bottom of a 2340px screen, as on the Pixel 4a that
+	// reproduced #139 against RNTester.
+	shell := &mockShell{out: `    touchable region=SkRegion((0,1428,1080,2340))
+    isOnScreen=true`}
+	d := New(&mockDeviceLabClient{}, &core.PlatformInfo{}, shell)
+
+	d.checkKeyboardBlocking(false, flow.Selector{ID: "rewrite_no_sp_input"})
+
+	queried := false
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "InputMethod") {
+			queried = true
+		}
+	}
+	if !queried {
+		t.Errorf("keyboard must be consulted even without a preceding input step (#139); shell saw %v", shell.commands)
 	}
 }
 

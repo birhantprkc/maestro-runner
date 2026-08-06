@@ -141,15 +141,27 @@ func keyboardStillCovering(element core.Bounds, keyboard *core.Bounds) bool {
 	return keyboard != nil && tapWouldHitKeyboard(element, *keyboard)
 }
 
-// checkKeyboardBlocking checks if the keyboard overlaps the target element after an input step.
+// checkKeyboardBlocking checks if the keyboard overlaps the target element.
 // UIA2 finds elements via the accessibility tree even when the keyboard covers them,
 // but coordinate taps land on the keyboard overlay instead. This detects that case and
 // fails with a helpful hint instead of silently tapping the keyboard. It re-samples until
 // the layout settles (shared core loop), so an IME-resize relayout that lifts the element
 // above the keyboard an instant later isn't rejected on the stale first frame.
 // Returns nil if this check doesn't apply or element is not blocked — caller should proceed normally.
+//
+// The keyboard is not only up because the previous step typed: a field with
+// autoFocus raises the IME on screen entry, and the IME survives navigation.
+// Gating solely on wasInput let those cases through, so the coordinate tap
+// landed on the keyboard, the step still reported success, and the following
+// `inputText` — which injects global key events — typed into whatever element
+// actually held focus. That silent misdirection is #139. So when the previous
+// step wasn't an input, fall back to asking whether the keyboard is up at all.
+//
+// Ordering matters for cost: `wasInput` short-circuits, so the tap-after-typing
+// path pays exactly what it did before. Only taps that previously skipped the
+// check outright spend a dumpsys, and only to discover the keyboard is down.
 func (d *Driver) checkKeyboardBlocking(wasInput bool, sel flow.Selector) *core.CommandResult {
-	if !wasInput {
+	if !wasInput && d.getKeyboardBounds() == nil {
 		return nil
 	}
 
