@@ -1089,13 +1089,32 @@ func (d *Driver) swipeWithCoordinates(start, end string, durationMs int) *core.C
 	return d.swipeWithAbsoluteCoords(startX, startY, endX, endY, durationMs)
 }
 
+// swipeWithAbsoluteCoords runs a swipe between two screen points.
+//
+// Prefers the agent's in-process injection over `adb shell input swipe`.
+// The shell command always lifts the pointer at speed, so the view flings and
+// the distance scrolled depends on momentum computed from timings that shift
+// with machine load — the same flow then scrolls differently locally and on CI
+// (#141). The agent primes the touch slop and holds the pointer still before
+// lifting, neither of which `input swipe` can express. ADB stays as the
+// fallback for when the agent isn't reachable.
 func (d *Driver) swipeWithAbsoluteCoords(startX, startY, endX, endY, durationMs int) *core.CommandResult {
-	if d.device == nil {
-		return errorResult(fmt.Errorf("device not configured"), "swipe with coordinates requires device access")
-	}
-
 	if durationMs <= 0 {
 		durationMs = 300
+	}
+
+	if d.client != nil {
+		if err := d.client.SwipeCoords(startX, startY, endX, endY, durationMs); err == nil {
+			return successResult(fmt.Sprintf("Swiped from (%d,%d) to (%d,%d)", startX, startY, endX, endY), nil)
+		} else if d.device == nil {
+			return errorResult(err, fmt.Sprintf("Failed to swipe: %v", err))
+		} else {
+			logger.Warn("[devicelab] agent swipe failed, falling back to adb: %v", err)
+		}
+	}
+
+	if d.device == nil {
+		return errorResult(fmt.Errorf("device not configured"), "swipe with coordinates requires device access")
 	}
 
 	cmd := fmt.Sprintf("input swipe %d %d %d %d %d", startX, startY, endX, endY, durationMs)

@@ -44,6 +44,7 @@ type DeviceLabClient interface {
 	LongClickElement(elementID string, durationMs int) error
 	ScrollInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error
 	SwipeInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error
+	SwipeCoords(startX, startY, endX, endY, durationMs int) error
 
 	// Navigation
 	Back() error

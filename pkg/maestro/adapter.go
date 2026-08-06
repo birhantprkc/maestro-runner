@@ -264,6 +264,25 @@ func (a *Adapter) SwipeInArea(area uiautomator2.RectModel, direction string, per
 	return err
 }
 
+// SwipeCoords runs a swipe between explicit points over durationMs, injected
+// in-process by the agent.
+//
+// The alternative, `adb shell input swipe`, always lifts the pointer at speed,
+// so the view flings and the scroll distance depends on momentum the platform
+// computes from timings that shift with machine load (#141). The agent's path
+// primes the touch slop and holds the pointer still before lifting, which the
+// shell command cannot express.
+func (a *Adapter) SwipeCoords(startX, startY, endX, endY, durationMs int) error {
+	_, err := a.client.Call("Gesture.swipe", map[string]interface{}{
+		"startX":     startX,
+		"startY":     startY,
+		"endX":       endX,
+		"endY":       endY,
+		"durationMs": durationMs,
+	})
+	return err
+}
+
 // --- Navigation ---
 
 // Back presses the back button.

@@ -14,10 +14,12 @@ import (
 
 // mockDeviceLabClient is a minimal mock for scrollUntilVisible tests.
 type mockDeviceLabClient struct {
-	sourceFunc     func() (string, error)
-	scrollCalls    int
-	scrollErr      error
-	findClickCalls int
+	swipeCoordsCalls [][5]int
+	swipeCoordsErr   error
+	sourceFunc       func() (string, error)
+	scrollCalls      int
+	scrollErr        error
+	findClickCalls   int
 }
 
 func (m *mockDeviceLabClient) FindElement(strategy, selector string) (*uiautomator2.Element, error) {
@@ -43,17 +45,21 @@ func (m *mockDeviceLabClient) ScrollInArea(area uiautomator2.RectModel, directio
 func (m *mockDeviceLabClient) SwipeInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error {
 	return nil
 }
-func (m *mockDeviceLabClient) Back() error                       { return nil }
-func (m *mockDeviceLabClient) HideKeyboard() error               { return nil }
-func (m *mockDeviceLabClient) PressKeyCode(keyCode int) error    { return nil }
-func (m *mockDeviceLabClient) SendKeyActions(text string) error  { return nil }
+func (m *mockDeviceLabClient) SwipeCoords(startX, startY, endX, endY, durationMs int) error {
+	m.swipeCoordsCalls = append(m.swipeCoordsCalls, [5]int{startX, startY, endX, endY, durationMs})
+	return m.swipeCoordsErr
+}
+func (m *mockDeviceLabClient) Back() error                                   { return nil }
+func (m *mockDeviceLabClient) HideKeyboard() error                           { return nil }
+func (m *mockDeviceLabClient) PressKeyCode(keyCode int) error                { return nil }
+func (m *mockDeviceLabClient) SendKeyActions(text string) error              { return nil }
 func (m *mockDeviceLabClient) AddMedia(name, mime string, data []byte) error { return nil }
-func (m *mockDeviceLabClient) Screenshot() ([]byte, error)       { return nil, nil }
-func (m *mockDeviceLabClient) Source() (string, error)           { return m.sourceFunc() }
-func (m *mockDeviceLabClient) GetOrientation() (string, error)   { return "PORTRAIT", nil }
-func (m *mockDeviceLabClient) SetOrientation(string) error       { return nil }
-func (m *mockDeviceLabClient) GetClipboard() (string, error)     { return "", nil }
-func (m *mockDeviceLabClient) SetClipboard(string) error         { return nil }
+func (m *mockDeviceLabClient) Screenshot() ([]byte, error)                   { return nil, nil }
+func (m *mockDeviceLabClient) Source() (string, error)                       { return m.sourceFunc() }
+func (m *mockDeviceLabClient) GetOrientation() (string, error)               { return "PORTRAIT", nil }
+func (m *mockDeviceLabClient) SetOrientation(string) error                   { return nil }
+func (m *mockDeviceLabClient) GetClipboard() (string, error)                 { return "", nil }
+func (m *mockDeviceLabClient) SetClipboard(string) error                     { return nil }
 func (m *mockDeviceLabClient) GetDeviceInfo() (*uiautomator2.DeviceInfo, error) {
 	return &uiautomator2.DeviceInfo{RealDisplaySize: "1080x2400"}, nil
 }
@@ -62,8 +68,8 @@ func (m *mockDeviceLabClient) ForceStop(string) error                         { 
 func (m *mockDeviceLabClient) ClearAppData(string) error                      { return nil }
 func (m *mockDeviceLabClient) GrantPermissions(string, []string) error        { return nil }
 func (m *mockDeviceLabClient) SetAppiumSettings(map[string]interface{}) error { return nil }
-func (m *mockDeviceLabClient) WaitForSettle(int, int) (bool, error)          { return true, nil }
-func (m *mockDeviceLabClient) TreeHash() (uint64, error)                     { return 0, nil }
+func (m *mockDeviceLabClient) WaitForSettle(int, int) (bool, error)           { return true, nil }
+func (m *mockDeviceLabClient) TreeHash() (uint64, error)                      { return 0, nil }
 func (m *mockDeviceLabClient) FindFirstOf([]string) (*uiautomator2.Element, error) {
 	return nil, fmt.Errorf("not implemented in mock")
 }
@@ -262,4 +268,3 @@ func TestScrollUntilVisibleSkipsOffScreenMatches(t *testing.T) {
 		t.Errorf("Expected full %d scroll attempts (no short-circuit on off-screen match), got %d", 4, client.scrollCalls)
 	}
 }
-

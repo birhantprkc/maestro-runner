@@ -377,6 +377,16 @@ func newTrackingClient() *trackingClient {
 	return &trackingClient{mockDeviceLabClient: &mockDeviceLabClient{}}
 }
 
+// newAdbSwipeClient returns a client whose agent swipe fails, forcing
+// swipeWithAbsoluteCoords down its adb fallback. The geometry tests below
+// assert on the `input swipe` string, so they need that path specifically;
+// the agent path is preferred in production and covered separately.
+func newAdbSwipeClient() *trackingClient {
+	c := newTrackingClient()
+	c.swipeCoordsErr = errors.New("agent unavailable")
+	return c
+}
+
 func (t *trackingClient) Back() error {
 	t.backCalls++
 	return t.backErr
@@ -832,7 +842,7 @@ func TestLaunchWithMonkey(t *testing.T) {
 
 func TestSwipeWithAbsoluteCoords(t *testing.T) {
 	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{}, shell)
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{}, shell)
 
 	res := driver.swipeWithAbsoluteCoords(100, 200, 300, 400, 500)
 	if !res.Success {
@@ -850,13 +860,13 @@ func TestSwipeWithAbsoluteCoords(t *testing.T) {
 	}
 
 	// No device
-	res = New(newTrackingClient(), &core.PlatformInfo{}, nil).swipeWithAbsoluteCoords(0, 0, 1, 1, 100)
+	res = New(newAdbSwipeClient(), &core.PlatformInfo{}, nil).swipeWithAbsoluteCoords(0, 0, 1, 1, 100)
 	if res.Success {
 		t.Error("swipeWithAbsoluteCoords without device should fail")
 	}
 
 	// Shell error
-	res = New(newTrackingClient(), &core.PlatformInfo{}, &mockShell{err: errors.New("nope")}).swipeWithAbsoluteCoords(0, 0, 1, 1, 100)
+	res = New(newAdbSwipeClient(), &core.PlatformInfo{}, &mockShell{err: errors.New("nope")}).swipeWithAbsoluteCoords(0, 0, 1, 1, 100)
 	if res.Success {
 		t.Error("swipeWithAbsoluteCoords should propagate shell error")
 	}
@@ -864,7 +874,7 @@ func TestSwipeWithAbsoluteCoords(t *testing.T) {
 
 func TestSwipeWithCoordinates(t *testing.T) {
 	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
 
 	// Percentage coords resolve to absolute via screen size.
 	res := driver.swipeWithCoordinates("50%,25%", "50%,75%", 200)
@@ -888,13 +898,13 @@ func TestSwipeWithCoordinates(t *testing.T) {
 	}
 
 	// No device
-	res = New(newTrackingClient(), &core.PlatformInfo{}, nil).swipeWithCoordinates("50%,25%", "50%,75%", 100)
+	res = New(newAdbSwipeClient(), &core.PlatformInfo{}, nil).swipeWithCoordinates("50%,25%", "50%,75%", 100)
 	if res.Success {
 		t.Error("swipeWithCoordinates without device should fail")
 	}
 
 	// No screen size
-	res = New(newTrackingClient(), &core.PlatformInfo{}, &mockShell{}).swipeWithCoordinates("50%,25%", "50%,75%", 100)
+	res = New(newAdbSwipeClient(), &core.PlatformInfo{}, &mockShell{}).swipeWithCoordinates("50%,25%", "50%,75%", 100)
 	if res.Success {
 		t.Error("swipeWithCoordinates without screen size should fail")
 	}
@@ -1062,7 +1072,7 @@ func TestSwipeWithMaestroCoordinates(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.direction, func(t *testing.T) {
 			shell := &mockShell{}
-			driver := New(newTrackingClient(), &core.PlatformInfo{}, shell)
+			driver := New(newAdbSwipeClient(), &core.PlatformInfo{}, shell)
 			res := driver.swipeWithMaestroCoordinates(c.direction, W, H, 300)
 			if !res.Success {
 				t.Fatalf("swipeWithMaestroCoordinates failed: %v", res.Error)
@@ -1541,7 +1551,7 @@ func TestTapOnPoint_Errors(t *testing.T) {
 
 func TestSwipe_StartEndStrings(t *testing.T) {
 	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
 	res := driver.swipe(&flow.SwipeStep{Start: "50%,25%", End: "50%,75%", Duration: 100})
 	if !res.Success {
 		t.Fatalf("swipe start/end failed: %v", res.Error)
@@ -1553,7 +1563,7 @@ func TestSwipe_StartEndStrings(t *testing.T) {
 
 func TestSwipe_AbsoluteXY(t *testing.T) {
 	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
 	res := driver.swipe(&flow.SwipeStep{StartX: 10, StartY: 20, EndX: 100, EndY: 200, Duration: 50})
 	if !res.Success {
 		t.Fatalf("swipe absolute failed: %v", res.Error)
@@ -1565,7 +1575,7 @@ func TestSwipe_AbsoluteXY(t *testing.T) {
 
 func TestSwipe_DirectionOnly(t *testing.T) {
 	shell := &mockShell{}
-	driver := New(newTrackingClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
 	// No start/end, no x/y, no selector → use Maestro coordinates
 	res := driver.swipe(&flow.SwipeStep{Direction: "up", Duration: 300})
 	if !res.Success {
@@ -2217,7 +2227,7 @@ func TestExecute_DispatchesByStepType(t *testing.T) {
 // =============================================================================
 
 func TestScroll_NoSelector_UsesADB(t *testing.T) {
-	client := &scriptedClient{trackingClient: newTrackingClient()}
+	client := &scriptedClient{trackingClient: newAdbSwipeClient()}
 	shell := &mockShell{}
 	driver := New(client, &core.PlatformInfo{ScreenWidth: 1000, ScreenHeight: 2000}, shell)
 
@@ -3184,4 +3194,41 @@ func TestElementSwipeCoords(t *testing.T) {
 			t.Errorf("travel = %d, want 936 (0.4 of 2340)", travel)
 		}
 	})
+}
+
+// TestSwipeWithAbsoluteCoords_PrefersAgent covers the #141 fix. `adb shell input
+// swipe` always lifts the pointer at speed, so the view flings and the distance
+// scrolled depends on momentum computed from timings that shift with load. The
+// agent's in-process injection primes the touch slop and holds the pointer
+// still before lifting, so swipes must go through it when it is reachable.
+func TestSwipeWithAbsoluteCoords_PrefersAgent(t *testing.T) {
+	shell := &mockShell{}
+	client := newTrackingClient()
+	driver := New(client, &core.PlatformInfo{}, shell)
+
+	res := driver.swipeWithAbsoluteCoords(100, 200, 300, 400, 500)
+	if !res.Success {
+		t.Fatalf("swipeWithAbsoluteCoords failed: %v", res.Error)
+	}
+	if got := client.swipeCoordsCalls; len(got) != 1 || got[0] != [5]int{100, 200, 300, 400, 500} {
+		t.Errorf("agent swipe calls = %v, want one call with (100,200,300,400,500)", got)
+	}
+	if len(shell.commands) != 0 {
+		t.Errorf("adb must not be used while the agent is reachable, got %v", shell.commands)
+	}
+}
+
+// TestSwipeWithAbsoluteCoords_FallsBackToAdb keeps swipes working on a device
+// where the agent RPC fails rather than failing the step outright.
+func TestSwipeWithAbsoluteCoords_FallsBackToAdb(t *testing.T) {
+	shell := &mockShell{}
+	driver := New(newAdbSwipeClient(), &core.PlatformInfo{}, shell)
+
+	res := driver.swipeWithAbsoluteCoords(1, 2, 3, 4, 0)
+	if !res.Success {
+		t.Fatalf("expected the adb fallback to succeed: %v", res.Error)
+	}
+	if len(shell.commands) != 1 || shell.commands[0] != "input swipe 1 2 3 4 300" {
+		t.Errorf("expected the adb fallback with the default duration, got %v", shell.commands)
+	}
 }
