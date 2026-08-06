@@ -1609,13 +1609,18 @@ func (d *Driver) copyTextFrom(step *flow.CopyTextFromStep) *core.CommandResult {
 	var text string
 	if elem != nil {
 		text, err = elem.Text()
+		if err != nil {
+			return errorResult(err, fmt.Sprintf("Failed to get text: %v", err))
+		}
 		if text == "" {
 			if desc, descErr := elem.Attribute("content-desc"); descErr == nil && desc != "" {
 				text = desc
 			}
 		}
-		if err != nil {
-			return errorResult(err, fmt.Sprintf("Failed to get text: %v", err))
+		// Cached elements can't serve content-desc over the wire; the
+		// hierarchy snapshot already carries it.
+		if text == "" && info != nil {
+			text = info.AccessibilityLabel
 		}
 	} else if info != nil {
 		text = info.Text
