@@ -701,11 +701,30 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 
 	stats, err := core.CompareImages(referenceData, capturedData)
 	if err != nil {
+		// A comparison that never ran writes no diff image, so any _diff.png
+		// left by an earlier run stays on disk — and it shows the *previous*
+		// failure, or none at all. Users following the "check the diff image"
+		// hint then see a picture that looks identical to the capture and
+		// conclude the runner is lying (#138). Clear it so the artifact can't
+		// contradict the error beside it.
+		diffPath := core.DiffScreenshotPath(referencePath)
+		if rmErr := os.Remove(diffPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Warn("Failed to remove stale screenshot diff %s: %v", diffPath, rmErr)
+		}
 		err = fmt.Errorf("compare screenshot with %q: %w", referencePath, err)
+		msg := err.Error()
+		if step.CropOn != nil {
+			// A cropped baseline is only ever as stable as the element's
+			// rendered size, so name that cause rather than leaving the user to
+			// guess why two runs of the same flow disagree on dimensions.
+			msg += " — the cropOn element rendered at a different size than when" +
+				" the baseline was captured; re-record it with --update-screenshots" +
+				" if the new size is correct"
+		}
 		return &core.CommandResult{
 			Success: false,
 			Error:   err,
-			Message: err.Error(),
+			Message: msg,
 		}
 	}
 	matchPercentage := stats.MatchPercentage

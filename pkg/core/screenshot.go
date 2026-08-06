@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"math"
 )
 
 // CropScreenshot crops a screenshot to the given element bounds.
@@ -39,13 +40,25 @@ func CropScreenshot(data []byte, bounds Bounds, screenW, screenH int) ([]byte, e
 	imgRect := img.Bounds()
 	imgW, imgH := imgRect.Dx(), imgRect.Dy()
 
-	// Scale element bounds (device pixels) → image pixels.
+	// Scale element bounds (device pixels) → image pixels, rounding origin and
+	// size independently so the crop's dimensions depend only on the element's
+	// size — never on where it sits.
+	//
+	// Truncating (the old behaviour) coupled the two: with a driver that halves
+	// the screenshot, an element of height 131 yields 65 at y=100 but 66 at
+	// y=101, because both the origin and the size lose their fraction
+	// separately. Two runs of one flow then produced crops of different heights
+	// and assertScreenshot rejected the pair on size before comparing a single
+	// pixel (#138). Deriving the size from the scaled edges has the same flaw —
+	// round(115.5)-round(50) and round(116)-round(50.5) differ. Rounding the
+	// width and height on their own gives one answer for a given element size,
+	// stable across sub-pixel drift.
 	sx := float64(imgW) / float64(screenW)
 	sy := float64(imgH) / float64(screenH)
-	x := int(float64(bounds.X) * sx)
-	y := int(float64(bounds.Y) * sy)
-	w := int(float64(bounds.Width) * sx)
-	h := int(float64(bounds.Height) * sy)
+	x := int(math.Round(float64(bounds.X) * sx))
+	y := int(math.Round(float64(bounds.Y) * sy))
+	w := int(math.Round(float64(bounds.Width) * sx))
+	h := int(math.Round(float64(bounds.Height) * sy))
 
 	// Clamp to image rectangle so we don't ask for pixels outside the screenshot.
 	if x < 0 {

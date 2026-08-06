@@ -2894,3 +2894,73 @@ func TestRunner_StepPlatformGate(t *testing.T) {
 		t.Error("ungated assertVisible should have run")
 	}
 }
+
+// TestRunner_AssertScreenshotStep_ClearsStaleDiffOnSizeMismatch covers the
+// second half of #138. When the captured crop differs in size from the
+// baseline, the comparison never runs and therefore writes no diff image — so a
+// _diff.png from an earlier run survives and shows the wrong thing. Users
+// following the "check the diff image" hint saw a picture identical to the
+// capture and concluded the runner was wrong about the failure.
+func TestRunner_AssertScreenshotStep_ClearsStaleDiffOnSizeMismatch(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	base := imagecolor.RGBA{R: 10, G: 20, B: 30, A: 255}
+	reference := encodeTestFilledPNG(t, 200, 150, base, nil)
+	// One pixel taller — the cropOn drift the issue reports (498x65 vs 498x66).
+	captured := encodeTestFilledPNG(t, 200, 151, base, nil)
+
+	referencePath := filepath.Join(tmpDir, "reference.png")
+	if err := os.WriteFile(referencePath, reference, 0o644); err != nil {
+		t.Fatalf("write reference image: %v", err)
+	}
+	// A diff left behind by an earlier failing run.
+	staleDiff := core.DiffScreenshotPath(referencePath)
+	if err := os.WriteFile(staleDiff, reference, 0o644); err != nil {
+		t.Fatalf("write stale diff: %v", err)
+	}
+
+	driver := &mockDriver{
+		executeFunc: func(step flow.Step) *core.CommandResult {
+			if _, ok := step.(*flow.AssertScreenshotStep); ok {
+				return &core.CommandResult{Success: true, Data: captured}
+			}
+			return &core.CommandResult{Success: true}
+		},
+	}
+	runner := New(driver, RunnerConfig{
+		OutputDir:   filepath.Join(tmpDir, "output"),
+		Artifacts:   ArtifactNever,
+		Device:      report.Device{ID: "test", Platform: "android"},
+		App:         report.App{ID: "com.test"},
+		Parallelism: 0,
+	})
+	flows := []flow.Flow{{
+		SourcePath: filepath.Join(tmpDir, "test.yaml"),
+		Config:     flow.Config{Name: "Assert Screenshot Size Mismatch"},
+		Steps: []flow.Step{&flow.AssertScreenshotStep{
+			BaseStep:            flow.BaseStep{StepType: flow.StepAssertScreenshot},
+			Path:                "reference",
+			ThresholdPercentage: 100,
+			CropOn:              &flow.Selector{ID: "editor-input"},
+		}},
+	}}
+
+	result, err := runner.Run(context.Background(), flows)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != report.StatusFailed {
+		t.Fatalf("Status = %v, want %v", result.Status, report.StatusFailed)
+	}
+	if _, statErr := os.Stat(staleDiff); !os.IsNotExist(statErr) {
+		t.Errorf("stale diff %s must be removed so it can't contradict the error", staleDiff)
+	}
+
+	msg := result.FlowResults[0].Error
+	if !strings.Contains(msg, "size mismatch") {
+		t.Errorf("error should name the size mismatch, got %q", msg)
+	}
+	if !strings.Contains(msg, "cropOn element rendered at a different size") {
+		t.Errorf("a cropOn assertion should explain why sizes drift, got %q", msg)
+	}
+}

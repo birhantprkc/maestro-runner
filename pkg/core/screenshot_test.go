@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -48,9 +49,9 @@ func TestCropScreenshot_HappyPath(t *testing.T) {
 // Devicelab Android agent downscales screenshots to 50% before transmit.
 // Bounds (in device-pixel space) must scale proportionally to image space.
 func TestCropScreenshot_HalfResScreenshot(t *testing.T) {
-	src := encodeGradientPNG(t, 500, 1000)                                // screenshot at 50% of device pixels
-	bounds := Bounds{X: 200, Y: 400, Width: 400, Height: 600}     // device-pixel bounds
-	out, err := CropScreenshot(src, bounds, 1000, 2000)           // screen is 1000x2000 device pixels
+	src := encodeGradientPNG(t, 500, 1000)                    // screenshot at 50% of device pixels
+	bounds := Bounds{X: 200, Y: 400, Width: 400, Height: 600} // device-pixel bounds
+	out, err := CropScreenshot(src, bounds, 1000, 2000)       // screen is 1000x2000 device pixels
 	if err != nil {
 		t.Fatalf("crop: %v", err)
 	}
@@ -102,5 +103,34 @@ func TestCropScreenshot_FullyOffScreenBoundsErrors(t *testing.T) {
 	// Bounds entirely past the right edge.
 	if _, err := CropScreenshot(src, Bounds{X: 200, Y: 50, Width: 50, Height: 20}, 100, 100); err == nil {
 		t.Error("expected error for fully off-screen bounds")
+	}
+}
+
+// TestCropScreenshot_SizeStableAcrossSubPixelShift is the #138 crop half. The
+// old code truncated origin and size independently, so the same element at a
+// slightly different Y produced a crop one pixel shorter or taller. Two runs of
+// one flow then disagreed on dimensions and assertScreenshot rejected the pair
+// on size before comparing any pixels. Rounding the rectangle's edges keeps the
+// height fixed while the element drifts within a device pixel.
+func TestCropScreenshot_SizeStableAcrossSubPixelShift(t *testing.T) {
+	// Screenshot at 50% of device pixels, as the devicelab Android agent sends.
+	src := encodeGradientPNG(t, 500, 1000)
+
+	const height = 131 // odd height — the case truncation handles worst
+	var sizes []string
+	for y := 100; y <= 105; y++ {
+		out, err := CropScreenshot(src, Bounds{X: 100, Y: y, Width: 200, Height: height}, 1000, 2000)
+		if err != nil {
+			t.Fatalf("crop at y=%d: %v", y, err)
+		}
+		w, h := decodePNGSize(t, out)
+		sizes = append(sizes, fmt.Sprintf("%dx%d", w, h))
+	}
+
+	for _, got := range sizes {
+		if got != sizes[0] {
+			t.Errorf("crop size drifted as the element moved sub-pixel: %v", sizes)
+			break
+		}
 	}
 }
