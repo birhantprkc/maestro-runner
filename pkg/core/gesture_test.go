@@ -121,3 +121,58 @@ func TestDirectionSwipeScreenCoords(t *testing.T) {
 		t.Error("invalid direction should error")
 	}
 }
+
+func TestSwipeCoordsFromBounds(t *testing.T) {
+	// A small anchor near the middle of a 1080x2340 screen — the shape that
+	// made `swipe: from:` useless for scrolling in #141.
+	anchor := Bounds{X: 113, Y: 1401, Width: 856, Height: 77}
+
+	t.Run("travel comes from distance, not the anchor's size", func(t *testing.T) {
+		_, startY, _, endY, err := SwipeCoordsFromBounds("up", anchor, 1080, 2340, 0.5)
+		if err != nil {
+			t.Fatalf("SwipeCoordsFromBounds() error = %v", err)
+		}
+		travel := startY - endY
+		// Half the screen, not the 77px anchor.
+		if travel != 1170 {
+			t.Errorf("travel = %d, want 1170 (half of 2340)", travel)
+		}
+	})
+
+	t.Run("starts at the anchor centre so the anchor captures the touch", func(t *testing.T) {
+		startX, startY, _, _, err := SwipeCoordsFromBounds("down", anchor, 1080, 2340, 0.2)
+		if err != nil {
+			t.Fatalf("SwipeCoordsFromBounds() error = %v", err)
+		}
+		wantX, wantY := anchor.Center()
+		if startX != wantX || startY != wantY {
+			t.Errorf("start = (%d,%d), want the anchor centre (%d,%d)", startX, startY, wantX, wantY)
+		}
+	})
+
+	t.Run("clamps overshoot to the screen", func(t *testing.T) {
+		_, _, _, endY, err := SwipeCoordsFromBounds("down", anchor, 1080, 2340, 1)
+		if err != nil {
+			t.Fatalf("SwipeCoordsFromBounds() error = %v", err)
+		}
+		if endY != 2339 {
+			t.Errorf("endY = %d, want the last on-screen pixel 2339", endY)
+		}
+	})
+
+	t.Run("non-positive distance falls back to half a screen", func(t *testing.T) {
+		_, startY, _, endY, err := SwipeCoordsFromBounds("up", anchor, 1080, 2340, 0)
+		if err != nil {
+			t.Fatalf("SwipeCoordsFromBounds() error = %v", err)
+		}
+		if startY-endY != 1170 {
+			t.Errorf("travel = %d, want the 0.5 default (1170)", startY-endY)
+		}
+	})
+
+	t.Run("rejects an unknown direction", func(t *testing.T) {
+		if _, _, _, _, err := SwipeCoordsFromBounds("sideways", anchor, 1080, 2340, 0.5); err == nil {
+			t.Error("expected an error for an unknown direction")
+		}
+	})
+}

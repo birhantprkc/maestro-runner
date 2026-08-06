@@ -3115,3 +3115,73 @@ func TestInWebViewConnectBackoff(t *testing.T) {
 		})
 	}
 }
+
+// TestTapPointInBounds covers #140: doubleTapOn/longPressOn accept `point:` but
+// every driver used to tap the element centre and discard it. On a text editor
+// the centre is often blank space past the end of the content, where a
+// double-tap selects no word and raises no context menu.
+func TestTapPointInBounds(t *testing.T) {
+	b := core.Bounds{X: 100, Y: 200, Width: 400, Height: 80}
+
+	tests := []struct {
+		name         string
+		point        string
+		bounds       core.Bounds
+		wantX, wantY int
+		wantErr      bool
+	}{
+		{"empty point keeps the centre", "", b, 300, 240, false},
+		{"percentages resolve inside the element", "20%, 50%", b, 180, 240, false},
+		{"left edge", "0%, 0%", b, 100, 200, false},
+		{"zero-width bounds fall back to the centre", "20%, 50%", core.Bounds{}, 0, 0, false},
+		{"malformed point is reported", "nonsense", b, 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x, y, err := tapPointInBounds(tt.point, tt.bounds)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error for a malformed point")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("tapPointInBounds() error = %v", err)
+			}
+			if x != tt.wantX || y != tt.wantY {
+				t.Errorf("got (%d,%d), want (%d,%d)", x, y, tt.wantX, tt.wantY)
+			}
+		})
+	}
+}
+
+// TestElementSwipeCoords covers the #141 travel-control half: `distance:` was
+// honoured for screen swipes but silently ignored on `swipe: from:`, leaving
+// element swipes pinned to the anchor's own size. A 77px input then produced a
+// ~76px drag that scrolled nothing.
+func TestElementSwipeCoords(t *testing.T) {
+	// The RNTester input that demonstrated the bug: 77px tall, mid-screen.
+	anchor := core.Bounds{X: 113, Y: 1401, Width: 856, Height: 77}
+	const screenW, screenH = 1080, 2340
+
+	t.Run("no distance keeps anchor-sized travel", func(t *testing.T) {
+		_, startY, _, endY, err := elementSwipeCoords("up", anchor, screenW, screenH, 0)
+		if err != nil {
+			t.Fatalf("elementSwipeCoords() error = %v", err)
+		}
+		if travel := startY - endY; travel > 100 {
+			t.Errorf("travel = %d, want the anchor-sized default (~77px)", travel)
+		}
+	})
+
+	t.Run("distance switches to screen-fraction travel", func(t *testing.T) {
+		_, startY, _, endY, err := elementSwipeCoords("up", anchor, screenW, screenH, 0.4)
+		if err != nil {
+			t.Fatalf("elementSwipeCoords() error = %v", err)
+		}
+		if travel := startY - endY; travel != 936 {
+			t.Errorf("travel = %d, want 936 (0.4 of 2340)", travel)
+		}
+	})
+}

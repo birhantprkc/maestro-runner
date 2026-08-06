@@ -89,3 +89,53 @@ func DirectionSwipeScreenCoords(direction string, w, h int, distance float64) (s
 		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
 	}
 }
+
+// SwipeCoordsFromBounds returns coordinates for a direction swipe anchored on
+// an element that travels an explicit fraction of the screen rather than the
+// element's own size.
+//
+// SwipeCoordsInBounds ties travel to the element: a "down" swipe runs from 10%
+// to 110% of the element's height, so the gesture covers roughly one element.
+// That is right for drag targets, but it makes `swipe: from:` useless for
+// scrolling when the anchor is small — a 77px text input yields a ~76px drag
+// that scrolls nothing. `distance:` existed to control travel but was honoured
+// only for screen swipes, leaving element swipes with no control at all (#141).
+//
+// The swipe starts at the element's centre so the touch is captured by it, and
+// travels distance × the screen dimension, clamped to the screen. distance is
+// clamped to (0,1]; a non-positive value defaults to 0.5, matching
+// DirectionSwipeScreenCoords.
+func SwipeCoordsFromBounds(direction string, b Bounds, screenW, screenH int, distance float64) (startX, startY, endX, endY int, err error) {
+	if distance <= 0 {
+		distance = 0.5
+	}
+	if distance > 1 {
+		distance = 1
+	}
+
+	clamp := func(v, max int) int {
+		if v < 0 {
+			return 0
+		}
+		if max > 0 && v > max-1 {
+			return max - 1
+		}
+		return v
+	}
+	cx, cy := b.Center()
+	dx := int(float64(screenW) * distance)
+	dy := int(float64(screenH) * distance)
+
+	switch direction {
+	case "up":
+		return clamp(cx, screenW), clamp(cy, screenH), clamp(cx, screenW), clamp(cy-dy, screenH), nil
+	case "down":
+		return clamp(cx, screenW), clamp(cy, screenH), clamp(cx, screenW), clamp(cy+dy, screenH), nil
+	case "left":
+		return clamp(cx, screenW), clamp(cy, screenH), clamp(cx-dx, screenW), clamp(cy, screenH), nil
+	case "right":
+		return clamp(cx, screenW), clamp(cy, screenH), clamp(cx+dx, screenW), clamp(cy, screenH), nil
+	default:
+		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
+	}
+}

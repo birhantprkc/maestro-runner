@@ -116,9 +116,14 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %v", err))
 	}
 
-	// For relative selectors, elem is nil but we have bounds - double tap at center
-	if elem == nil {
-		x, y := info.Bounds.Center()
+	// For relative selectors elem is nil but we have bounds. An explicit
+	// `point:` also has to go through coordinates, since the element-scoped
+	// gesture always lands on the centre.
+	if elem == nil || step.Selector.Point != "" {
+		x, y, perr := tapPointInBounds(step.Selector.Point, info.Bounds)
+		if perr != nil {
+			return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+		}
 		if err := d.client.DoubleClick(x, y); err != nil {
 			return errorResult(err, fmt.Sprintf("Failed to double tap at coordinates: %v", err))
 		}
@@ -129,6 +134,26 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 	}
 
 	return successResult("Double tapped on element", info)
+}
+
+// tapPointInBounds resolves where inside b a gesture should land. An empty
+// point means the centre, matching the previous behaviour.
+//
+// doubleTapOn and longPressOn accept `point:` in YAML — Selector carries the
+// field and the parser fills it — but every driver tapped the centre and never
+// read it. Aiming was silently discarded, which matters most on a text editor:
+// the centre is often blank space past the end of the content, and
+// double-tapping blank space selects no word and raises no context menu (#140).
+func tapPointInBounds(point string, b core.Bounds) (int, int, error) {
+	cx, cy := b.Center()
+	if point == "" || b.Width <= 0 {
+		return cx, cy, nil
+	}
+	dx, dy, err := core.ParsePointCoords(point, b.Width, b.Height)
+	if err != nil {
+		return 0, 0, err
+	}
+	return b.X + dx, b.Y + dy, nil
 }
 
 func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
@@ -149,9 +174,13 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 		duration = 1000 // default 1 second
 	}
 
-	// For relative selectors, elem is nil but we have bounds - long press at center
-	if elem == nil {
-		x, y := info.Bounds.Center()
+	// For relative selectors elem is nil but we have bounds; an explicit
+	// `point:` likewise needs coordinates rather than the element-scoped press.
+	if elem == nil || step.Selector.Point != "" {
+		x, y, perr := tapPointInBounds(step.Selector.Point, info.Bounds)
+		if perr != nil {
+			return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+		}
 		if err := d.client.LongClick(x, y, duration); err != nil {
 			return errorResult(err, fmt.Sprintf("Failed to long press at coordinates: %v", err))
 		}
@@ -638,7 +667,8 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 		}
 		if info != nil && info.Bounds.Width > 0 {
 			screenW, screenH, _ := d.screenSize() // (0,0) when unknown → far-edge clamp skipped
-			startX, startY, endX, endY, err := core.SwipeCoordsInBounds(direction, info.Bounds, screenW, screenH)
+			startX, startY, endX, endY, err := elementSwipeCoords(
+				direction, info.Bounds, screenW, screenH, step.Distance)
 			if err != nil {
 				return errorResult(err, fmt.Sprintf("Invalid swipe direction: %s", step.Direction))
 			}
@@ -1950,4 +1980,18 @@ func randomNumber(length int) string {
 
 func randomPersonName() string {
 	return core.RandomPersonName()
+}
+
+// elementSwipeCoords picks the geometry for a `swipe: from: <element>`.
+//
+// By default travel is tied to the anchor (SwipeCoordsInBounds runs 10%→110% of
+// its bounds), which suits drag targets but makes scrolling from a small anchor
+// useless — a 77px text input yields a ~76px drag. `distance:` was honoured only
+// for screen swipes, so element swipes had no travel control at all (#141).
+// A positive distance switches to screen-fraction travel.
+func elementSwipeCoords(direction string, b core.Bounds, screenW, screenH int, distance float64) (int, int, int, int, error) {
+	if distance > 0 {
+		return core.SwipeCoordsFromBounds(direction, b, screenW, screenH, distance)
+	}
+	return core.SwipeCoordsInBounds(direction, b, screenW, screenH)
 }
