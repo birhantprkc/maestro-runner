@@ -25,7 +25,11 @@ func SettleKeyboardBlocking(
 	window, poll time.Duration,
 ) (blocked bool, kbTop, centerY int) {
 	deadline := time.Now().Add(window)
-	lastKbTop, lastCenterY := -1, -1
+	// lastKbTop keeps -1 when the keyboard vanishes mid-settle and we never see
+	// its top. lastCenterY needs no sentinel: every path that reads it assigns
+	// it first, from the element sampled this iteration.
+	lastKbTop := -1
+	var lastCenterY int
 	for {
 		elem, present := findElement()
 		if !present {

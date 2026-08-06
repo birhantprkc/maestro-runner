@@ -2200,7 +2200,6 @@ func buildParallelIOSDeviceError(cfg *RunConfig, found int, msg string) error {
 // can splice extra flags into the command the user actually ran.
 func currentCommandParts() (globalPart, testPart string) {
 	args := os.Args
-	globalPart = args[0]
 	for i := 1; i < len(args); i++ {
 		if args[i] == "test" {
 			globalPart = strings.Join(args[:i], " ")
