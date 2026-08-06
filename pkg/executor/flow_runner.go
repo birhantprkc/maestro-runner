@@ -699,7 +699,7 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 		}
 	}
 
-	matchPercentage, err := core.CheckImageMatchPercentage(referenceData, capturedData)
+	stats, err := core.CompareImages(referenceData, capturedData)
 	if err != nil {
 		err = fmt.Errorf("compare screenshot with %q: %w", referencePath, err)
 		return &core.CommandResult{
@@ -708,6 +708,7 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 			Message: err.Error(),
 		}
 	}
+	matchPercentage := stats.MatchPercentage
 
 	if matchPercentage < step.ThresholdPercentage {
 		diffPath := core.DiffScreenshotPath(referencePath)
@@ -717,18 +718,29 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 		} else {
 			diffHint = fmt.Sprintf(". Check the diff image at %s", diffPath)
 		}
+		// Print enough decimals that a near-miss can't render as "100.00% is
+		// below threshold 100.00%", and name the differing pixel count so a
+		// sub-rounding difference is legible as a real one (#138).
+		decimals := core.MatchDecimals(matchPercentage, step.ThresholdPercentage)
+		pixels := fmt.Sprintf(
+			"%d of %d pixels differ",
+			stats.DifferingPixels,
+			stats.TotalPixels,
+		)
 		err = fmt.Errorf(
-			"screenshot match %.2f%% is below threshold %.2f%%",
-			matchPercentage,
-			step.ThresholdPercentage,
+			"screenshot match %.*f%% is below threshold %.*f%% (%s)",
+			decimals, matchPercentage,
+			decimals, step.ThresholdPercentage,
+			pixels,
 		)
 		return &core.CommandResult{
 			Success: false,
 			Error:   err,
 			Message: fmt.Sprintf(
-				"Screenshot mismatch: %.2f%% match (threshold: %.2f%%)%s",
-				matchPercentage,
-				step.ThresholdPercentage,
+				"Screenshot mismatch: %.*f%% match (threshold: %.*f%%, %s)%s",
+				decimals, matchPercentage,
+				decimals, step.ThresholdPercentage,
+				pixels,
 				diffHint,
 			),
 		}

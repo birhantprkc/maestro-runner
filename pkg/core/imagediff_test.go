@@ -126,6 +126,69 @@ func TestCheckImageMatchPercentage_ReportsSizeMismatch(t *testing.T) {
 	}
 }
 
+func TestCompareImages_ReportsPixelCounts(t *testing.T) {
+	expected := encodePNG(t, 100, 100, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 100; x++ {
+			img.Set(x, y, color.RGBA{R: 100, G: 100, B: 100, A: 255})
+		}
+	}
+	img.Set(0, 0, color.RGBA{R: 250, G: 100, B: 100, A: 255}) // one pixel outside tolerance
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	stats, err := CompareImages(expected, buf.Bytes())
+	if err != nil {
+		t.Fatalf("CompareImages() error = %v", err)
+	}
+	if stats.DifferingPixels != 1 {
+		t.Errorf("DifferingPixels = %d, want 1", stats.DifferingPixels)
+	}
+	if stats.TotalPixels != 10000 {
+		t.Errorf("TotalPixels = %d, want 10000", stats.TotalPixels)
+	}
+	if stats.MatchPercentage != 99.99 {
+		t.Errorf("MatchPercentage = %v, want 99.99", stats.MatchPercentage)
+	}
+}
+
+func TestCompareImages_IdenticalIsExactly100(t *testing.T) {
+	a := encodePNG(t, 10, 10, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	stats, err := CompareImages(a, a)
+	if err != nil {
+		t.Fatalf("CompareImages() error = %v", err)
+	}
+	// A 100% threshold must pass on an exact match — no float drift below 100.
+	if stats.MatchPercentage != 100 || stats.DifferingPixels != 0 {
+		t.Errorf("stats = %+v, want 100%% / 0 differing", stats)
+	}
+}
+
+func TestMatchDecimals_WidensUntilValuesDiffer(t *testing.T) {
+	tests := []struct {
+		name      string
+		match     float64
+		threshold float64
+		want      int
+	}{
+		{"clearly below rounds fine at two", 94.5, 95, 2},
+		{"near miss at 100 needs four", 99.9998, 100, 4},
+		{"near miss at 100 needs three", 99.9994, 100, 3},
+		{"indistinguishable falls back to max", 100, 100, 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := MatchDecimals(tt.match, tt.threshold); got != tt.want {
+				t.Errorf("MatchDecimals(%v, %v) = %d, want %d", tt.match, tt.threshold, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDiffScreenshotPath(t *testing.T) {
 	tests := []struct {
 		in   string

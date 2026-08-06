@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -98,23 +99,35 @@ func CheckImageDifference(a, b []byte) (float64, error) {
 	return float64(differing) / float64(total), nil
 }
 
-// CheckImageMatchPercentage returns the percentage of pixels whose RGB color
-// distance is within Maestro's per-pixel tolerance. This mirrors Maestro's
-// assertScreenshot comparison rather than requiring exact RGB equality.
-func CheckImageMatchPercentage(expectedData, actualData []byte) (float64, error) {
+// ImageMatchStats describes an assertScreenshot comparison: the match
+// percentage plus the raw pixel counts behind it. The counts matter because a
+// handful of differing pixels in a multi-megapixel screenshot rounds to
+// "100.00%" at two decimals, which reads like a runner bug rather than a real
+// (if tiny) visual difference (#138).
+type ImageMatchStats struct {
+	MatchPercentage float64
+	DifferingPixels int
+	TotalPixels     int
+}
+
+// CompareImages returns the percentage of pixels whose RGB color distance is
+// within Maestro's per-pixel tolerance, along with the pixel counts. This
+// mirrors Maestro's assertScreenshot comparison rather than requiring exact
+// RGB equality.
+func CompareImages(expectedData, actualData []byte) (ImageMatchStats, error) {
 	expected, _, err := image.Decode(bytes.NewReader(expectedData))
 	if err != nil {
-		return 0, fmt.Errorf("decode expected image: %w", err)
+		return ImageMatchStats{}, fmt.Errorf("decode expected image: %w", err)
 	}
 	actual, _, err := image.Decode(bytes.NewReader(actualData))
 	if err != nil {
-		return 0, fmt.Errorf("decode actual image: %w", err)
+		return ImageMatchStats{}, fmt.Errorf("decode actual image: %w", err)
 	}
 
 	expectedBounds := expected.Bounds()
 	actualBounds := actual.Bounds()
 	if expectedBounds.Dx() != actualBounds.Dx() || expectedBounds.Dy() != actualBounds.Dy() {
-		return 0, fmt.Errorf(
+		return ImageMatchStats{}, fmt.Errorf(
 			"screenshot size mismatch: expected %dx%d, actual %dx%d",
 			expectedBounds.Dx(),
 			expectedBounds.Dy(),
@@ -125,26 +138,48 @@ func CheckImageMatchPercentage(expectedData, actualData []byte) (float64, error)
 
 	total := expectedBounds.Dx() * expectedBounds.Dy()
 	if total == 0 {
-		return 100, nil
+		return ImageMatchStats{MatchPercentage: 100}, nil
 	}
 
-	maxColorDistance := math.Sqrt(255.0 * 255.0 * 3)
-	differenceLimit := math.Pow(maestroPixelTolerance*maxColorDistance, 2)
 	differing := 0
-	for y := 0; y < expectedBounds.Dy(); y++ {
-		for x := 0; x < expectedBounds.Dx(); x++ {
-			er, eg, eb, _ := expected.At(expectedBounds.Min.X+x, expectedBounds.Min.Y+y).RGBA()
-			ar, ag, ab, _ := actual.At(actualBounds.Min.X+x, actualBounds.Min.Y+y).RGBA()
-			dr := float64(int(ar>>8) - int(er>>8))
-			dg := float64(int(ag>>8) - int(eg>>8))
-			db := float64(int(ab>>8) - int(eb>>8))
-			if dr*dr+dg*dg+db*db > differenceLimit {
-				differing++
-			}
+	for _, differs := range differingPixelMask(
+		expected, actual, expectedBounds, actualBounds, expectedBounds.Dx(), expectedBounds.Dy(),
+	) {
+		if differs {
+			differing++
 		}
 	}
+	return ImageMatchStats{
+		MatchPercentage: 100 - float64(differing)/float64(total)*100,
+		DifferingPixels: differing,
+		TotalPixels:     total,
+	}, nil
+}
 
-	return 100 - float64(differing)/float64(total)*100, nil
+// CheckImageMatchPercentage returns just the match percentage of CompareImages.
+func CheckImageMatchPercentage(expectedData, actualData []byte) (float64, error) {
+	stats, err := CompareImages(expectedData, actualData)
+	if err != nil {
+		return 0, err
+	}
+	return stats.MatchPercentage, nil
+}
+
+// MatchDecimals returns how many decimal places a match percentage needs so it
+// does not print identically to the threshold it failed against. Two decimals
+// turn 99.9998% into "100.00%", producing the nonsensical "100.00% match is
+// below threshold 100.00%" (#138); widen precision until the two differ.
+func MatchDecimals(match, threshold float64) int {
+	const (
+		minDecimals = 2
+		maxDecimals = 6
+	)
+	for d := minDecimals; d < maxDecimals; d++ {
+		if strconv.FormatFloat(match, 'f', d, 64) != strconv.FormatFloat(threshold, 'f', d, 64) {
+			return d
+		}
+	}
+	return maxDecimals
 }
 
 // DiffScreenshotPath returns the Maestro-style sidecar path for a screenshot

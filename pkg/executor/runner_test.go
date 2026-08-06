@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2631,6 +2632,64 @@ func TestRunner_AssertScreenshotStep(t *testing.T) {
 	}
 }
 
+// TestRunner_AssertScreenshotStep_NearMissMessage covers #138: a screenshot
+// that misses a 100% threshold by a few pixels used to report "100.00% match
+// (threshold: 100.00%)", which reads like a runner bug. The message must widen
+// precision and name the differing pixel count.
+func TestRunner_AssertScreenshotStep_NearMissMessage(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	base := imagecolor.RGBA{R: 100, G: 100, B: 100, A: 255}
+	reference := encodeTestFilledPNG(t, 200, 150, base, nil)
+	// One pixel outside Maestro's color tolerance: 1/30000 → 99.996667% match,
+	// which rounds to "100.00" at the old two decimals.
+	captured := encodeTestFilledPNG(t, 200, 150, base, &imagecolor.RGBA{R: 250, G: 100, B: 100, A: 255})
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "reference.png"), reference, 0o644); err != nil {
+		t.Fatalf("write reference image: %v", err)
+	}
+
+	driver := &mockDriver{
+		executeFunc: func(step flow.Step) *core.CommandResult {
+			if _, ok := step.(*flow.AssertScreenshotStep); ok {
+				return &core.CommandResult{Success: true, Data: captured}
+			}
+			return &core.CommandResult{Success: true}
+		},
+	}
+	runner := New(driver, RunnerConfig{
+		OutputDir:   filepath.Join(tmpDir, "output"),
+		Artifacts:   ArtifactNever,
+		Device:      report.Device{ID: "test", Platform: "android"},
+		App:         report.App{ID: "com.test"},
+		Parallelism: 0,
+	})
+	flows := []flow.Flow{{
+		SourcePath: filepath.Join(tmpDir, "test.yaml"),
+		Config:     flow.Config{Name: "Assert Screenshot Near Miss"},
+		Steps: []flow.Step{&flow.AssertScreenshotStep{
+			BaseStep:            flow.BaseStep{StepType: flow.StepAssertScreenshot},
+			Path:                "reference",
+			ThresholdPercentage: 100,
+		}},
+	}}
+
+	result, err := runner.Run(context.Background(), flows)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != report.StatusFailed {
+		t.Fatalf("Status = %v, want %v", result.Status, report.StatusFailed)
+	}
+
+	msg := result.FlowResults[0].Error
+	for _, want := range []string{"99.997%", "threshold: 100.000%", "1 of 30000 pixels differ"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message %q missing %q", msg, want)
+		}
+	}
+}
+
 func TestRunner_AssertScreenshotStep_SeedsMissingBaseline(t *testing.T) {
 	tmpDir := t.TempDir()
 	captured := encodeTestPNG(t, []imagecolor.RGBA{
@@ -2740,6 +2799,28 @@ func TestRunner_AssertScreenshotStep_UpdateScreenshotsOverwritesBaseline(t *test
 	if _, err := os.Stat(filepath.Join(tmpDir, "reference_diff.png")); err == nil {
 		t.Error("unexpected diff image when updating screenshots")
 	}
+}
+
+// encodeTestFilledPNG builds a w×h PNG filled with fill, optionally setting
+// pixel (0,0) to a different color — enough to exercise near-100% matches.
+func encodeTestFilledPNG(t *testing.T, w, h int, fill imagecolor.RGBA, corner *imagecolor.RGBA) []byte {
+	t.Helper()
+
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, fill)
+		}
+	}
+	if corner != nil {
+		img.SetRGBA(0, 0, *corner)
+	}
+
+	var data bytes.Buffer
+	if err := png.Encode(&data, img); err != nil {
+		t.Fatalf("encode PNG: %v", err)
+	}
+	return data.Bytes()
 }
 
 func encodeTestPNG(t *testing.T, pixels []imagecolor.RGBA) []byte {
