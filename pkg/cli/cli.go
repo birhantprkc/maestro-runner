@@ -163,6 +163,7 @@ Examples:
 			testCommand,
 			wdaCommand,
 			hierarchyCommand,
+			lintCommand,
 		},
 	}
 
