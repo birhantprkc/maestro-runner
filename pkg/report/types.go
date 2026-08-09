@@ -153,6 +153,7 @@ type FlowDetail struct {
 	EndTime     *time.Time    `json:"endTime,omitempty"`
 	Duration    *int64        `json:"duration,omitempty"` // milliseconds
 	Commands    []Command     `json:"commands"`
+	StepLatency *StepLatency  `json:"stepLatency,omitempty"` // p50/p95/max over this flow's commands
 	Artifacts   FlowArtifacts `json:"artifacts"`
 	ConsoleLogs []ConsoleLog  `json:"consoleLogs,omitempty"` // Browser console / page errors captured during the flow (web only)
 }

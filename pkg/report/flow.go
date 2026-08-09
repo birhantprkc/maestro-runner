@@ -103,6 +103,13 @@ func (w *FlowWriter) End(status Status, flowLevelError ...string) {
 		w.flow.Duration = &duration
 	}
 
+	// Summarise per-step latency now that every command has its duration, so
+	// the shape of a slow run is visible in the report rather than only its
+	// total. Omitted when nothing ran (a fully skipped flow has no data).
+	if latency := ComputeStepLatency(w.flow.Commands); latency.Count > 0 {
+		w.flow.StepLatency = &latency
+	}
+
 	w.flush()
 
 	var errMsg *string
