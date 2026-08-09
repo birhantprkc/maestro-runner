@@ -139,3 +139,98 @@ func SwipeCoordsFromBounds(direction string, b Bounds, screenW, screenH int, dis
 		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
 	}
 }
+
+// SwipeCoordsForElement resolves start/end coordinates for `swipe: from: <element>`,
+// applying both element-relative knobs in one place.
+//
+//   - point ("x%, y%", may be empty) moves where inside the element the swipe
+//     STARTS. Empty keeps the historic origin — an edge for the default travel,
+//     the centre once a distance is given.
+//   - distance (0 = unset) switches travel from the element's own size to that
+//     fraction of the screen.
+//
+// The two are independent: a point with no distance still travels the element's
+// own dimension, so adding `point:` re-aims a swipe without also lengthening it.
+// Upstream added element-relative `swipe.from` points as Maestro #3470; the
+// point was previously parsed into the selector and then ignored, the same way
+// doubleTapOn/longPressOn ignored theirs (#140).
+func SwipeCoordsForElement(
+	direction string, b Bounds, screenW, screenH int, distance float64, point string,
+) (startX, startY, endX, endY int, err error) {
+	if point == "" {
+		if distance > 0 {
+			return SwipeCoordsFromBounds(direction, b, screenW, screenH, distance)
+		}
+		return SwipeCoordsInBounds(direction, b, screenW, screenH)
+	}
+
+	dx, dy, perr := ParsePointCoords(point, b.Width, b.Height)
+	if perr != nil {
+		return 0, 0, 0, 0, perr
+	}
+	originX, originY := b.X+dx, b.Y+dy
+
+	travel, terr := swipeTravel(direction, b, screenW, screenH, distance)
+	if terr != nil {
+		return 0, 0, 0, 0, terr
+	}
+	return SwipeCoordsFrom(direction, originX, originY, travel, screenW, screenH)
+}
+
+// swipeTravel is how far a `from:` swipe moves: a fraction of the screen when
+// distance is set, otherwise the element's own extent along the axis — which is
+// what SwipeCoordsInBounds covers by running 10%→110% of the bounds.
+func swipeTravel(direction string, b Bounds, screenW, screenH int, distance float64) (int, error) {
+	switch direction {
+	case "up", "down":
+		if distance > 0 {
+			return int(float64(screenH) * clampDistance(distance)), nil
+		}
+		return b.Height, nil
+	case "left", "right":
+		if distance > 0 {
+			return int(float64(screenW) * clampDistance(distance)), nil
+		}
+		return b.Width, nil
+	default:
+		return 0, fmt.Errorf("invalid swipe direction: %q", direction)
+	}
+}
+
+func clampDistance(distance float64) float64 {
+	if distance <= 0 {
+		return 0.5
+	}
+	if distance > 1 {
+		return 1
+	}
+	return distance
+}
+
+// SwipeCoordsFrom returns start/end coordinates for a direction swipe that
+// begins at an explicit origin and travels `travel` pixels, clamped on-screen.
+func SwipeCoordsFrom(direction string, originX, originY, travel, screenW, screenH int) (startX, startY, endX, endY int, err error) {
+	clamp := func(v, max int) int {
+		if v < 0 {
+			return 0
+		}
+		if max > 0 && v > max-1 {
+			return max - 1
+		}
+		return v
+	}
+	sx, sy := clamp(originX, screenW), clamp(originY, screenH)
+
+	switch direction {
+	case "up":
+		return sx, sy, sx, clamp(originY-travel, screenH), nil
+	case "down":
+		return sx, sy, sx, clamp(originY+travel, screenH), nil
+	case "left":
+		return sx, sy, clamp(originX-travel, screenW), sy, nil
+	case "right":
+		return sx, sy, clamp(originX+travel, screenW), sy, nil
+	default:
+		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
+	}
+}

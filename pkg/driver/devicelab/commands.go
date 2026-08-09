@@ -953,8 +953,8 @@ func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {
 		}
 		if info != nil && info.Bounds.Width > 0 {
 			screenW, screenH, _ := d.screenSize() // (0,0) when unknown → far-edge clamp skipped
-			startX, startY, endX, endY, err := elementSwipeCoords(
-				direction, info.Bounds, screenW, screenH, step.Distance)
+			startX, startY, endX, endY, err := core.SwipeCoordsForElement(
+				direction, info.Bounds, screenW, screenH, step.Distance, step.Selector.Point)
 			if err != nil {
 				return errorResult(err, fmt.Sprintf("Invalid swipe direction: %s", step.Direction))
 			}
@@ -2267,16 +2267,60 @@ func (d *Driver) runWebViewScript(step *flow.RunWebViewScriptStep) *core.Command
 	return result
 }
 
-// elementSwipeCoords picks the geometry for a `swipe: from: <element>`.
-//
-// By default travel is tied to the anchor (SwipeCoordsInBounds runs 10%→110% of
-// its bounds), which suits drag targets but makes scrolling from a small anchor
-// useless — a 77px text input yields a ~76px drag. `distance:` was honoured only
-// for screen swipes, so element swipes had no travel control at all (#141).
-// A positive distance switches to screen-fraction travel.
-func elementSwipeCoords(direction string, b core.Bounds, screenW, screenH int, distance float64) (int, int, int, int, error) {
-	if distance > 0 {
-		return core.SwipeCoordsFromBounds(direction, b, screenW, screenH, distance)
+// ============================================================================
+// Dark mode (Maestro #2507)
+// ============================================================================
+
+func (d *Driver) setDarkMode(step *flow.SetDarkModeStep) *core.CommandResult {
+	return d.applyDarkMode(step.Enabled)
+}
+
+func (d *Driver) toggleDarkMode(_ *flow.ToggleDarkModeStep) *core.CommandResult {
+	current, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to read dark mode: %v", err))
 	}
-	return core.SwipeCoordsInBounds(direction, b, screenW, screenH)
+	return d.applyDarkMode(!current)
+}
+
+func (d *Driver) assertDarkMode(_ *flow.AssertDarkModeStep) *core.CommandResult {
+	return d.assertDarkModeIs(true)
+}
+
+func (d *Driver) assertLightMode(_ *flow.AssertLightModeStep) *core.CommandResult {
+	return d.assertDarkModeIs(false)
+}
+
+func (d *Driver) assertDarkModeIs(want bool) *core.CommandResult {
+	got, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to read dark mode: %v", err))
+	}
+	if got != want {
+		assertErr := core.DarkModeAssertionError(want, got)
+		return errorResult(assertErr, assertErr.Error())
+	}
+	return successResult(fmt.Sprintf("Device is in %s mode", core.DarkModeStateName(want)), nil)
+}
+
+// currentDarkMode reports whether the system UI is currently dark.
+func (d *Driver) currentDarkMode() (bool, error) {
+	if d.device == nil {
+		return false, fmt.Errorf("device not configured")
+	}
+	output, err := d.device.Shell(core.AndroidDarkModeQuery)
+	if err != nil {
+		return false, err
+	}
+	return core.ParseAndroidNightMode(output)
+}
+
+func (d *Driver) applyDarkMode(enabled bool) *core.CommandResult {
+	if d.device == nil {
+		return errorResult(fmt.Errorf("device not configured"), "setDarkMode requires device access")
+	}
+	if _, err := d.device.Shell(core.AndroidDarkModeCommand(enabled)); err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to set dark mode: %v", err))
+	}
+	return successResult(fmt.Sprintf("Set %s mode", core.DarkModeStateName(enabled)), nil)
 }

@@ -3166,36 +3166,6 @@ func TestTapPointInBounds(t *testing.T) {
 	}
 }
 
-// TestElementSwipeCoords covers the #141 travel-control half: `distance:` was
-// honoured for screen swipes but silently ignored on `swipe: from:`, leaving
-// element swipes pinned to the anchor's own size. A 77px input then produced a
-// ~76px drag that scrolled nothing.
-func TestElementSwipeCoords(t *testing.T) {
-	// The RNTester input that demonstrated the bug: 77px tall, mid-screen.
-	anchor := core.Bounds{X: 113, Y: 1401, Width: 856, Height: 77}
-	const screenW, screenH = 1080, 2340
-
-	t.Run("no distance keeps anchor-sized travel", func(t *testing.T) {
-		_, startY, _, endY, err := elementSwipeCoords("up", anchor, screenW, screenH, 0)
-		if err != nil {
-			t.Fatalf("elementSwipeCoords() error = %v", err)
-		}
-		if travel := startY - endY; travel > 100 {
-			t.Errorf("travel = %d, want the anchor-sized default (~77px)", travel)
-		}
-	})
-
-	t.Run("distance switches to screen-fraction travel", func(t *testing.T) {
-		_, startY, _, endY, err := elementSwipeCoords("up", anchor, screenW, screenH, 0.4)
-		if err != nil {
-			t.Fatalf("elementSwipeCoords() error = %v", err)
-		}
-		if travel := startY - endY; travel != 936 {
-			t.Errorf("travel = %d, want 936 (0.4 of 2340)", travel)
-		}
-	})
-}
-
 // TestSwipeWithAbsoluteCoords_PrefersAgent covers the #141 fix. `adb shell input
 // swipe` always lifts the pointer at speed, so the view flings and the distance
 // scrolled depends on momentum computed from timings that shift with load. The

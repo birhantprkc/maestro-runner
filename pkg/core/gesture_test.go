@@ -176,3 +176,85 @@ func TestSwipeCoordsFromBounds(t *testing.T) {
 		}
 	})
 }
+
+func TestSwipeCoordsForElement(t *testing.T) {
+	// The RNTester input that drove #141: 77px tall, mid-screen.
+	anchor := Bounds{X: 113, Y: 1401, Width: 856, Height: 77}
+	const screenW, screenH = 1080, 2340
+
+	t.Run("no point, no distance keeps anchor-sized travel", func(t *testing.T) {
+		_, startY, _, endY, err := SwipeCoordsForElement("up", anchor, screenW, screenH, 0, "")
+		if err != nil {
+			t.Fatalf("SwipeCoordsForElement() error = %v", err)
+		}
+		if travel := startY - endY; travel > 100 {
+			t.Errorf("travel = %d, want the anchor-sized default (~77px)", travel)
+		}
+	})
+
+	t.Run("distance switches to screen-fraction travel", func(t *testing.T) {
+		_, startY, _, endY, err := SwipeCoordsForElement("up", anchor, screenW, screenH, 0.4, "")
+		if err != nil {
+			t.Fatalf("SwipeCoordsForElement() error = %v", err)
+		}
+		if travel := startY - endY; travel != 936 {
+			t.Errorf("travel = %d, want 936 (0.4 of 2340)", travel)
+		}
+	})
+
+	t.Run("point re-aims the start without lengthening the swipe", func(t *testing.T) {
+		startX, startY, _, endY, err := SwipeCoordsForElement("up", anchor, screenW, screenH, 0, "25%, 50%")
+		if err != nil {
+			t.Fatalf("SwipeCoordsForElement() error = %v", err)
+		}
+		// 25% across 856 = 214 → x = 113+214; 50% down 77 = 38 → y = 1401+38.
+		if startX != 327 || startY != 1439 {
+			t.Errorf("start = (%d,%d), want (327,1439)", startX, startY)
+		}
+		if travel := startY - endY; travel != anchor.Height {
+			t.Errorf("travel = %d, want the anchor height %d — point must not change travel", travel, anchor.Height)
+		}
+	})
+
+	t.Run("point and distance compose", func(t *testing.T) {
+		startX, startY, _, endY, err := SwipeCoordsForElement("up", anchor, screenW, screenH, 0.4, "25%, 50%")
+		if err != nil {
+			t.Fatalf("SwipeCoordsForElement() error = %v", err)
+		}
+		if startX != 327 || startY != 1439 {
+			t.Errorf("start = (%d,%d), want (327,1439)", startX, startY)
+		}
+		if travel := startY - endY; travel != 936 {
+			t.Errorf("travel = %d, want 936", travel)
+		}
+	})
+
+	// Horizontal swipes return their endpoint in endX — a transposed return
+	// would leave startY holding it and the gesture would move diagonally.
+	t.Run("horizontal swipes stay on one row", func(t *testing.T) {
+		for _, dir := range []string{"left", "right"} {
+			startX, startY, endX, endY, err := SwipeCoordsForElement(dir, anchor, screenW, screenH, 0.2, "50%, 50%")
+			if err != nil {
+				t.Fatalf("%s: %v", dir, err)
+			}
+			if startY != endY {
+				t.Errorf("%s: startY=%d endY=%d — a horizontal swipe must not change row", dir, startY, endY)
+			}
+			if startX == endX {
+				t.Errorf("%s: startX == endX (%d) — no horizontal travel", dir, startX)
+			}
+		}
+	})
+
+	t.Run("malformed point is reported", func(t *testing.T) {
+		if _, _, _, _, err := SwipeCoordsForElement("up", anchor, screenW, screenH, 0, "nonsense"); err == nil {
+			t.Error("expected an error for a malformed point")
+		}
+	})
+
+	t.Run("rejects an unknown direction", func(t *testing.T) {
+		if _, _, _, _, err := SwipeCoordsForElement("sideways", anchor, screenW, screenH, 0, "50%,50%"); err == nil {
+			t.Error("expected an error for an unknown direction")
+		}
+	})
+}
