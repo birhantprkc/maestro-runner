@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/devicelab-dev/maestro-runner/pkg/core"
 )
 
 const androidXML = `<?xml version="1.0"?>
@@ -125,4 +130,53 @@ func TestFormatHierarchy_Find(t *testing.T) {
 	if !strings.Contains(none, "no elements matching") {
 		t.Errorf("find with no match should report it, got:\n%s", none)
 	}
+}
+
+// fakeScreenshotDriver is a core.Driver stub for the screenshot side-channel of
+// the hierarchy command; only Screenshot() is exercised.
+type fakeScreenshotDriver struct {
+	core.Driver
+	data []byte
+	err  error
+}
+
+func (f *fakeScreenshotDriver) Screenshot() ([]byte, error) { return f.data, f.err }
+
+func TestCaptureHierarchyScreenshot(t *testing.T) {
+	t.Run("writes the image and creates parent directories", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "nested", "shot.png")
+		d := &fakeScreenshotDriver{data: []byte("\x89PNG fake")}
+
+		if err := captureHierarchyScreenshot(d, path); err != nil {
+			t.Fatalf("captureHierarchyScreenshot() error = %v", err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read written screenshot: %v", err)
+		}
+		if string(got) != "\x89PNG fake" {
+			t.Errorf("wrote %q, want the driver's bytes", got)
+		}
+	})
+
+	t.Run("reports a driver failure", func(t *testing.T) {
+		d := &fakeScreenshotDriver{err: errors.New("device gone")}
+		if err := captureHierarchyScreenshot(d, filepath.Join(t.TempDir(), "s.png")); err == nil {
+			t.Error("expected the driver error to surface")
+		}
+	})
+
+	// An empty capture would otherwise write a 0-byte PNG that looks like a
+	// successful screenshot until someone opens it.
+	t.Run("rejects an empty capture", func(t *testing.T) {
+		d := &fakeScreenshotDriver{data: nil}
+		path := filepath.Join(t.TempDir(), "s.png")
+		if err := captureHierarchyScreenshot(d, path); err == nil {
+			t.Error("expected an error when the driver returned no image data")
+		}
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Error("no file should be written when the capture was empty")
+		}
+	})
 }

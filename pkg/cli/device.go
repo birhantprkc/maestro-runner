@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	"github.com/devicelab-dev/maestro-runner/pkg/device"
 	"github.com/devicelab-dev/maestro-runner/pkg/logger"
 	"github.com/urfave/cli/v2"
@@ -59,6 +61,10 @@ Examples:
 		&cli.StringFlag{
 			Name:  "find",
 			Usage: "Only show elements whose type/id/text contains this substring (case-insensitive)",
+		},
+		&cli.StringFlag{
+			Name:  "screenshot",
+			Usage: "Also capture a screenshot to this path, from the same session",
 		},
 	},
 	Action: runHierarchy,
@@ -189,10 +195,24 @@ func runHierarchy(c *cli.Context) error {
 	defer func() { os.Stdout = os.Stderr; cleanup(); os.Stdout = realStdout }()
 
 	raw, err := driver.Hierarchy()
-	os.Stdout = realStdout
 	if err != nil {
+		os.Stdout = realStdout
 		return fmt.Errorf("failed to get hierarchy: %w", err)
 	}
+
+	// Capture the screenshot inside the same session, before teardown. Two
+	// separate invocations would pay driver startup twice and — worse — could
+	// straddle a UI change, leaving the tree and the image disagreeing about
+	// what was on screen.
+	if shotPath := c.String("screenshot"); shotPath != "" {
+		if serr := captureHierarchyScreenshot(driver, shotPath); serr != nil {
+			os.Stdout = realStdout
+			return serr
+		}
+		// stderr, so stdout stays pipe-clean for the tree itself.
+		logger.Info("Screenshot written to %s", shotPath)
+	}
+	os.Stdout = realStdout
 
 	// Normalize the driver's platform-specific output (Android/iOS XML or the
 	// devicelab JSON) into one consistent tree, then render.
@@ -201,5 +221,26 @@ func runHierarchy(c *cli.Context) error {
 		return fmt.Errorf("format hierarchy: %w", err)
 	}
 	fmt.Println(out)
+	return nil
+}
+
+// captureHierarchyScreenshot writes a screenshot from an already-open driver
+// session to path, creating parent directories as needed.
+func captureHierarchyScreenshot(driver core.Driver, path string) error {
+	data, err := driver.Screenshot()
+	if err != nil {
+		return fmt.Errorf("failed to capture screenshot: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("screenshot capture returned no image data")
+	}
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+			return fmt.Errorf("create screenshot directory: %w", mkErr)
+		}
+	}
+	if wErr := os.WriteFile(path, data, 0o644); wErr != nil {
+		return fmt.Errorf("write screenshot %s: %w", path, wErr)
+	}
 	return nil
 }
