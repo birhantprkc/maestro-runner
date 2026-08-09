@@ -37,9 +37,13 @@ type Driver struct {
 	// some iOS sim configs. Result: typing into RN password fields stops
 	// silently dropping characters.
 	lastTappedIdentifier string
-	lastTappedX          float64
-	lastTappedY          float64
-	lastTapHasCoords     bool
+	// lastTappedText is the target's text at tap time, so a following
+	// inputText can tell whether typing actually changed it (#139-class
+	// silent misdirection, iOS side).
+	lastTappedText   string
+	lastTappedX      float64
+	lastTappedY      float64
+	lastTapHasCoords bool
 
 	// Snapshot cache. snapshotMatching reuses a recent snapshot when
 	// successive selector resolutions happen close together (tapOn →

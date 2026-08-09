@@ -170,6 +170,10 @@ func (d *Driver) handleTapOn(s *flow.TapOnStep) *core.CommandResult {
 	if key, value, ok := simpleSelectorKeyValue(s.Selector); ok {
 		if hit, err := d.tryTapBySelector(key, value); err == nil && hit != nil {
 			d.lastTappedIdentifier = hit.Identifier
+			// No snapshot on this path, so there is no before-text to diff
+			// against; clearing it disables the post-type check rather than
+			// comparing against a stale value from an earlier tap.
+			d.lastTappedText = ""
 			d.lastTappedX, d.lastTappedY = hit.X, hit.Y
 			d.lastTapHasCoords = true
 			return core.SuccessResult(fmt.Sprintf("tapped: %s", describeSelector(s.Selector)), nil)
@@ -205,6 +209,7 @@ func (d *Driver) handleTapOn(s *flow.TapOnStep) *core.CommandResult {
 	} else {
 		d.lastTappedIdentifier = ""
 	}
+	d.lastTappedText = node.Value
 	d.lastTappedX, d.lastTappedY = cx, cy
 	d.lastTapHasCoords = true
 	return core.SuccessResult("tapped", toElementInfo(node))
@@ -254,6 +259,9 @@ func (d *Driver) handleInputText(s *flow.InputTextStep) *core.CommandResult {
 		if _, err := d.client.Call(ctx, typeCmd); err != nil {
 			return core.ErrorResult(err, "inputText failed: "+err.Error())
 		}
+		if verr := d.verifyTextEntry(node.Identifier, node.Value, s.Text); verr != nil {
+			return core.ErrorResult(verr, verr.Error())
+		}
 		return core.SuccessResult("typed", toElementInfo(node))
 	}
 
@@ -273,6 +281,9 @@ func (d *Driver) handleInputText(s *flow.InputTextStep) *core.CommandResult {
 	}
 	if _, err := d.client.Call(ctx, cmd); err != nil {
 		return core.ErrorResult(err, "inputText failed: "+err.Error())
+	}
+	if verr := d.verifyTextEntry(d.lastTappedIdentifier, d.lastTappedText, s.Text); verr != nil {
+		return core.ErrorResult(verr, verr.Error())
 	}
 	return core.SuccessResult("typed", nil)
 }
@@ -1282,3 +1293,54 @@ func (d *Driver) requireSimulatorForAppearance(what string) error {
 	}
 	return nil
 }
+
+// textEntryLanded reports whether a `type` command actually reached the target.
+//
+// iOS gives the host no focus signal to check up front — the runner never
+// populates SnapshotNode.Focused — so the only evidence available is whether
+// the field's value moved. That matters because the failure being guarded is
+// silent: the runner resolves some element, types into it, and reports success
+// even when the text went somewhere other than the field the flow named. It is
+// the iOS shape of the Android keyPress misdirection (#139), and agent-device
+// has fixed two instances of it in their runner (#1657, #1676).
+//
+// Comparing values rather than the rendered text avoids the placeholder trap:
+// an untouched field carries its placeholder in PlaceholderValue, so "empty
+// means nothing landed" would be wrong, while Value is empty until something
+// is typed.
+//
+// Unchanged is treated as landed when the field already holds the text being
+// typed — re-running a flow without clearState legitimately types the same
+// value into a field that already has it.
+func textEntryLanded(before, after, typed string) bool {
+	if after != before {
+		return true
+	}
+	return typed != "" && strings.Contains(after, typed)
+}
+
+// verifyTextEntry re-reads identifier and reports an error when the typed text
+// demonstrably never arrived. Verification is best-effort: with no identifier
+// to re-read, or if the re-read fails, it stays silent rather than inventing a
+// failure — a false failure here would be worse than the silent success it
+// replaces.
+func (d *Driver) verifyTextEntry(identifier, before, typed string) error {
+	if identifier == "" {
+		return nil
+	}
+	node, err := d.findElement(flow.Selector{ID: identifier}, true, shortVerifyTimeoutMs)
+	if err != nil || node == nil {
+		return nil
+	}
+	if textEntryLanded(before, node.Value, typed) {
+		return nil
+	}
+	return fmt.Errorf(
+		"inputText reported success but %q is unchanged (still %q) — the text was typed somewhere else; "+
+			"check that the preceding tap focused this field",
+		identifier, node.Value)
+}
+
+// shortVerifyTimeoutMs bounds the post-type re-read. The element was on screen
+// a moment ago, so this is a single snapshot, not a wait.
+const shortVerifyTimeoutMs = 1000
