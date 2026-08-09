@@ -21,11 +21,11 @@ import (
 )
 
 const (
-	defaultFindTimeoutMs        = 17000
-	defaultActionableTimeoutMs  = 2000 // brief window to wait for the actionable gate to pass post-find
-	optionalFindTimeoutMs = 7000
-	defaultViewportW      = 1280
-	defaultViewportH      = 800
+	defaultFindTimeoutMs       = 17000
+	defaultActionableTimeoutMs = 2000 // brief window to wait for the actionable gate to pass post-find
+	optionalFindTimeoutMs      = 7000
+	defaultViewportW           = 1280
+	defaultViewportH           = 800
 )
 
 // Config holds browser driver configuration.
@@ -596,6 +596,12 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 	// Unsupported — mobile-only or not applicable to web
 	case *flow.SetAirplaneModeStep, *flow.ToggleAirplaneModeStep:
 		result = unsupportedResult("airplane mode is not supported on web platform")
+	// Web dark mode is expressible via CDP prefers-color-scheme emulation, but
+	// that is a different mechanism from the device-appearance switch these
+	// steps drive; wiring it is a separate change.
+	case *flow.SetDarkModeStep, *flow.ToggleDarkModeStep,
+		*flow.AssertDarkModeStep, *flow.AssertLightModeStep:
+		result = unsupportedResult("dark mode is not yet supported on web platform")
 	case *flow.TravelStep:
 		result = unsupportedResult("travel is not supported on web platform")
 	case *flow.AddMediaStep:

@@ -222,6 +222,14 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.setAirplaneMode(s)
 	case *flow.ToggleAirplaneModeStep:
 		result = d.toggleAirplaneMode(s)
+	case *flow.SetDarkModeStep:
+		result = d.setDarkMode(s)
+	case *flow.ToggleDarkModeStep:
+		result = d.toggleDarkMode(s)
+	case *flow.AssertDarkModeStep:
+		result = d.assertDarkMode(s)
+	case *flow.AssertLightModeStep:
+		result = d.assertLightMode(s)
 	case *flow.TravelStep:
 		result = d.travel(s)
 

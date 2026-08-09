@@ -257,6 +257,7 @@ func isStepType(key string) bool {
 		StepAssertNoDefectsWithAI, StepAssertWithAI, StepExtractTextWithAI, StepWaitUntil,
 		StepLaunchApp, StepStopApp, StepKillApp, StepClearState, StepClearKeychain, StepSetPermissions,
 		StepSetLocation, StepSetOrientation, StepSetAirplaneMode, StepToggleAirplaneMode,
+		StepSetDarkMode, StepToggleDarkMode, StepAssertDarkMode, StepAssertLightMode,
 		StepTravel, StepOpenLink, StepOpenBrowser, StepRepeat, StepRetry, StepRunFlow,
 		StepRunScript, StepEvalScript, StepEvalBrowserScript,
 		StepRunBrowserScript, StepEvalWebViewScript, StepRunWebViewScript,
@@ -611,6 +612,36 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 
 	case StepToggleAirplaneMode:
 		return &ToggleAirplaneModeStep{BaseStep: BaseStep{StepType: stepType}}, nil
+
+	case StepSetDarkMode:
+		var s SetDarkModeStep
+		if valueNode.Kind == yaml.ScalarNode {
+			switch valueNode.Value {
+			case "enabled", "dark", "true":
+				s.Enabled = true
+			case "disabled", "light", "false":
+				s.Enabled = false
+			default:
+				return nil, wrapParseError(sourcePath, valueNode.Line,
+					fmt.Errorf("setDarkMode expects 'enabled'/'dark' or 'disabled'/'light', got %q", valueNode.Value))
+			}
+		} else if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		if b, ok := s.EnabledRaw.(bool); ok {
+			s.Enabled = b
+		}
+		s.StepType = stepType
+		return &s, nil
+
+	case StepToggleDarkMode:
+		return &ToggleDarkModeStep{BaseStep: BaseStep{StepType: stepType}}, nil
+
+	case StepAssertDarkMode:
+		return &AssertDarkModeStep{BaseStep: BaseStep{StepType: stepType}}, nil
+
+	case StepAssertLightMode:
+		return &AssertLightModeStep{BaseStep: BaseStep{StepType: stepType}}, nil
 
 	case StepTravel:
 		var s TravelStep

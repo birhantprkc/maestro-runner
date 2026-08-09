@@ -697,6 +697,10 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		if str, ok := s.EnabledRaw.(string); ok {
 			s.Enabled = parseBoolExpr(se.ExpandVariables(str))
 		}
+	case *flow.SetDarkModeStep:
+		if str, ok := s.EnabledRaw.(string); ok {
+			s.Enabled = parseBoolExpr(se.ExpandVariables(str))
+		}
 	case *flow.CopyTextFromStep:
 		s.Selector = *se.expandSelector(&s.Selector)
 	case *flow.LaunchAppStep:

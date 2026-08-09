@@ -305,6 +305,14 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.takeScreenshot(&flow.TakeScreenshotStep{CropOn: s.CropOn})
 
 	// Airplane mode
+	case *flow.SetDarkModeStep:
+		result = d.setDarkMode(s)
+	case *flow.ToggleDarkModeStep:
+		result = d.toggleDarkMode(s)
+	case *flow.AssertDarkModeStep:
+		result = d.assertDarkMode(s)
+	case *flow.AssertLightModeStep:
+		result = d.assertLightMode(s)
 	case *flow.SetAirplaneModeStep:
 		result = d.setAirplaneMode(s)
 	case *flow.ToggleAirplaneModeStep:
@@ -712,6 +720,7 @@ func (d *Driver) findElementQuick(sel flow.Selector, timeoutMs int) (*core.Eleme
 // wrapper views that XCUITest can't classify as accessible but which clearly
 // contain visible content. Hidden-but-still-mounted screens (all descendants
 // invisible) are correctly excluded.
+//
 //nolint:unused
 func filterVisibleOrHostingVisible(candidates []*ParsedElement) []*ParsedElement {
 	out := candidates[:0]
@@ -850,12 +859,12 @@ func (d *Driver) getElementInfo(elemID string) (*core.ElementInfo, error) {
 	}
 
 	var (
-		text      string
-		elemName  string
-		x, y, w, h int
-		displayed bool
+		text                               string
+		elemName                           string
+		x, y, w, h                         int
+		displayed                          bool
 		textErr, rectErr, dispErr, nameErr error
-		wg sync.WaitGroup
+		wg                                 sync.WaitGroup
 	)
 
 	wg.Add(4)

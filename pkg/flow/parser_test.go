@@ -2167,3 +2167,79 @@ func TestParse_StepPlatformGate(t *testing.T) {
 		t.Errorf("ungated step PlatformGate() = %q, want \"\"", g)
 	}
 }
+
+// TestParseDarkModeSteps covers the dark-mode commands (Maestro #2507). The
+// scalar spellings matter: `setDarkMode: dark` reads better in a flow than
+// `enabled: true`, and both must land on the same step.
+func TestParseDarkModeSteps(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		wantType StepType
+		wantOn   bool
+	}{
+		{"scalar enabled", `- setDarkMode: enabled`, StepSetDarkMode, true},
+		{"scalar dark", `- setDarkMode: dark`, StepSetDarkMode, true},
+		{"scalar disabled", `- setDarkMode: disabled`, StepSetDarkMode, false},
+		{"scalar light", `- setDarkMode: light`, StepSetDarkMode, false},
+		{"mapping true", `- setDarkMode: {enabled: true}`, StepSetDarkMode, true},
+		{"mapping false", `- setDarkMode: {enabled: false}`, StepSetDarkMode, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := Parse([]byte(tt.yaml), "test.yaml")
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if len(f.Steps) != 1 {
+				t.Fatalf("got %d steps, want 1", len(f.Steps))
+			}
+			step, ok := f.Steps[0].(*SetDarkModeStep)
+			if !ok {
+				t.Fatalf("got %T, want *SetDarkModeStep", f.Steps[0])
+			}
+			if step.Type() != tt.wantType {
+				t.Errorf("Type() = %v, want %v", step.Type(), tt.wantType)
+			}
+			if step.Enabled != tt.wantOn {
+				t.Errorf("Enabled = %v, want %v", step.Enabled, tt.wantOn)
+			}
+		})
+	}
+
+	t.Run("rejects an unknown scalar", func(t *testing.T) {
+		if _, err := Parse([]byte(`- setDarkMode: purple`), "test.yaml"); err == nil {
+			t.Error("expected an error for an unrecognised setDarkMode value")
+		}
+	})
+
+	t.Run("variable is deferred to the expansion pass", func(t *testing.T) {
+		f, err := Parse([]byte(`- setDarkMode: {enabled: "${DARK}"}`), "test.yaml")
+		if err != nil {
+			t.Fatalf("Parse() error = %v", err)
+		}
+		step := f.Steps[0].(*SetDarkModeStep)
+		if raw, ok := step.EnabledRaw.(string); !ok || raw != "${DARK}" {
+			t.Errorf("EnabledRaw = %v, want the raw ${DARK} for later expansion", step.EnabledRaw)
+		}
+	})
+
+	for _, tc := range []struct {
+		yaml     string
+		wantType StepType
+	}{
+		{`- toggleDarkMode:`, StepToggleDarkMode},
+		{`- assertDarkMode:`, StepAssertDarkMode},
+		{`- assertLightMode:`, StepAssertLightMode},
+	} {
+		t.Run(string(tc.wantType), func(t *testing.T) {
+			f, err := Parse([]byte(tc.yaml), "test.yaml")
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if got := f.Steps[0].Type(); got != tc.wantType {
+				t.Errorf("Type() = %v, want %v", got, tc.wantType)
+			}
+		})
+	}
+}

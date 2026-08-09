@@ -61,6 +61,10 @@ const (
 	StepSetOrientation     StepType = "setOrientation"
 	StepSetAirplaneMode    StepType = "setAirplaneMode"
 	StepToggleAirplaneMode StepType = "toggleAirplaneMode"
+	StepSetDarkMode        StepType = "setDarkMode"
+	StepToggleDarkMode     StepType = "toggleDarkMode"
+	StepAssertDarkMode     StepType = "assertDarkMode"
+	StepAssertLightMode    StepType = "assertLightMode"
 	StepTravel             StepType = "travel"
 	StepOpenLink           StepType = "openLink"
 	StepOpenBrowser        StepType = "openBrowser"
@@ -513,6 +517,32 @@ type SetAirplaneModeStep struct {
 
 // ToggleAirplaneModeStep toggles airplane mode.
 type ToggleAirplaneModeStep struct {
+	BaseStep `yaml:",inline"`
+}
+
+// SetDarkModeStep switches the system UI between dark and light appearance.
+//
+// Mirrors SetAirplaneModeStep: YAML accepts a bool (`enabled: true`) or a
+// string carrying a variable (`enabled: ${DARK}`), with EnabledRaw holding the
+// raw scalar until the executor's expansion pass resolves it.
+type SetDarkModeStep struct {
+	BaseStep   `yaml:",inline"`
+	Enabled    bool `yaml:"-"`
+	EnabledRaw any  `yaml:"enabled"`
+}
+
+// ToggleDarkModeStep flips the current appearance.
+type ToggleDarkModeStep struct {
+	BaseStep `yaml:",inline"`
+}
+
+// AssertDarkModeStep asserts the system UI is currently in dark appearance.
+type AssertDarkModeStep struct {
+	BaseStep `yaml:",inline"`
+}
+
+// AssertLightModeStep asserts the system UI is currently in light appearance.
+type AssertLightModeStep struct {
 	BaseStep `yaml:",inline"`
 }
 

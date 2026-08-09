@@ -1718,3 +1718,72 @@ func getIOSPermissions() []string {
 		"notifications",
 	}
 }
+
+// ============================================================================
+// Dark mode (Maestro #2507)
+// ============================================================================
+
+// Appearance is only settable on simulators — `simctl ui` has no real-device
+// equivalent, and iOS exposes no automation hook for it, so a physical device
+// returns a clear error rather than a silent no-op that would make a flow look
+// like it passed in the wrong appearance.
+func (d *Driver) setDarkMode(step *flow.SetDarkModeStep) *core.CommandResult {
+	if err := d.requireSimulatorForAppearance("setDarkMode"); err != nil {
+		return errorResult(err, err.Error())
+	}
+	out, err := exec.Command("xcrun", "simctl", "ui", d.udid, "appearance",
+		core.IOSAppearanceValue(step.Enabled)).CombinedOutput()
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to set dark mode: %v: %s", err, strings.TrimSpace(string(out))))
+	}
+	return successResult(fmt.Sprintf("Set %s mode", core.DarkModeStateName(step.Enabled)), nil)
+}
+
+func (d *Driver) toggleDarkMode(_ *flow.ToggleDarkModeStep) *core.CommandResult {
+	current, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, err.Error())
+	}
+	return d.setDarkMode(&flow.SetDarkModeStep{Enabled: !current})
+}
+
+func (d *Driver) assertDarkMode(_ *flow.AssertDarkModeStep) *core.CommandResult {
+	return d.assertDarkModeIs(true)
+}
+
+func (d *Driver) assertLightMode(_ *flow.AssertLightModeStep) *core.CommandResult {
+	return d.assertDarkModeIs(false)
+}
+
+func (d *Driver) assertDarkModeIs(want bool) *core.CommandResult {
+	got, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, err.Error())
+	}
+	if got != want {
+		assertErr := core.DarkModeAssertionError(want, got)
+		return errorResult(assertErr, assertErr.Error())
+	}
+	return successResult(fmt.Sprintf("Device is in %s mode", core.DarkModeStateName(want)), nil)
+}
+
+func (d *Driver) currentDarkMode() (bool, error) {
+	if err := d.requireSimulatorForAppearance("dark mode"); err != nil {
+		return false, err
+	}
+	out, err := exec.Command("xcrun", "simctl", "ui", d.udid, "appearance").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("failed to read appearance: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return core.ParseIOSAppearance(string(out))
+}
+
+func (d *Driver) requireSimulatorForAppearance(what string) error {
+	if d.info == nil || !d.info.IsSimulator {
+		return fmt.Errorf("%s is only supported on iOS simulators — iOS exposes no way to set appearance on a physical device", what)
+	}
+	if d.udid == "" {
+		return fmt.Errorf("%s requires a simulator UDID", what)
+	}
+	return nil
+}
