@@ -2466,6 +2466,15 @@ func TestInputTextWithSelectorNoElementID(t *testing.T) {
 			return
 		}
 
+		// The tap focuses the field, so the active-element probe finds it.
+		if strings.HasSuffix(path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{
+				"status": 0,
+				"value":  map[string]interface{}{"ELEMENT": "elem-focused"},
+			})
+			return
+		}
+
 		// Tap endpoint
 		if strings.Contains(path, "/wda/tap") {
 			jsonResponse(w, map[string]interface{}{"status": 0})
@@ -4521,6 +4530,14 @@ func TestAssertNotVisibleOptional(t *testing.T) {
 func TestInputTextAppendMode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// A text field holds focus, which is the state inputText runs in.
+		if strings.HasSuffix(r.URL.Path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{
+				"status": 0,
+				"value":  map[string]interface{}{"ELEMENT": "elem-focused"},
+			})
+			return
+		}
 		jsonResponse(w, map[string]interface{}{"status": 0})
 	}))
 	defer server.Close()
@@ -5432,6 +5449,14 @@ func TestFindElementRelativeWithNonExistentAnchor(t *testing.T) {
 func TestInputTextWithUnicodeChars(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// A text field holds focus, which is the state inputText runs in.
+		if strings.HasSuffix(r.URL.Path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{
+				"status": 0,
+				"value":  map[string]interface{}{"ELEMENT": "elem-focused"},
+			})
+			return
+		}
 		jsonResponse(w, map[string]interface{}{"status": 0})
 	}))
 	defer server.Close()
@@ -6014,5 +6039,29 @@ func TestFindElementByWDA_ExactIDBeforeContains(t *testing.T) {
 	}
 	if !strings.Contains(queries[1], "name CONTAINS 'enriched-text'") {
 		t.Errorf("second query should be CONTAINS fallback, got: %s", queries[1])
+	}
+}
+
+// TestInputTextFailsWhenNothingTakesFocus pins the focus gate. Previously the
+// active-element poll ran, was ignored, and the keys were sent regardless — so
+// text could land somewhere other than the field the flow named while the step
+// still reported success. That is the iOS shape of the Android keyPress
+// misdirection in #139.
+func TestInputTextFailsWhenNothingTakesFocus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// /element/active never yields an ELEMENT: nothing has focus.
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	result := driver.inputText(&flow.InputTextStep{Text: "Hello World"})
+
+	if result.Success {
+		t.Fatal("expected inputText to fail when nothing took keyboard focus")
+	}
+	if !strings.Contains(result.Message, "keyboard focus") {
+		t.Errorf("error should name the missing focus, got %q", result.Message)
 	}
 }

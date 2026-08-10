@@ -3126,46 +3126,6 @@ func TestInWebViewConnectBackoff(t *testing.T) {
 	}
 }
 
-// TestTapPointInBounds covers #140: doubleTapOn/longPressOn accept `point:` but
-// every driver used to tap the element centre and discard it. On a text editor
-// the centre is often blank space past the end of the content, where a
-// double-tap selects no word and raises no context menu.
-func TestTapPointInBounds(t *testing.T) {
-	b := core.Bounds{X: 100, Y: 200, Width: 400, Height: 80}
-
-	tests := []struct {
-		name         string
-		point        string
-		bounds       core.Bounds
-		wantX, wantY int
-		wantErr      bool
-	}{
-		{"empty point keeps the centre", "", b, 300, 240, false},
-		{"percentages resolve inside the element", "20%, 50%", b, 180, 240, false},
-		{"left edge", "0%, 0%", b, 100, 200, false},
-		{"zero-width bounds fall back to the centre", "20%, 50%", core.Bounds{}, 0, 0, false},
-		{"malformed point is reported", "nonsense", b, 0, 0, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			x, y, err := tapPointInBounds(tt.point, tt.bounds)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected an error for a malformed point")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("tapPointInBounds() error = %v", err)
-			}
-			if x != tt.wantX || y != tt.wantY {
-				t.Errorf("got (%d,%d), want (%d,%d)", x, y, tt.wantX, tt.wantY)
-			}
-		})
-	}
-}
-
 // TestSwipeWithAbsoluteCoords_PrefersAgent covers the #141 fix. `adb shell input
 // swipe` always lifts the pointer at speed, so the view flings and the distance
 // scrolled depends on momentum computed from timings that shift with load. The

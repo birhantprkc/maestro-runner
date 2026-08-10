@@ -125,8 +125,11 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %s", selectorDesc(step.Selector)))
 	}
 
-	x := float64(info.Bounds.X + info.Bounds.Width/2)
-	y := float64(info.Bounds.Y + info.Bounds.Height/2)
+	px, py, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+	if perr != nil {
+		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+	}
+	x, y := float64(px), float64(py)
 
 	if err := d.client.DoubleTap(x, y); err != nil {
 		return errorResult(err, "Double tap failed")
@@ -141,8 +144,11 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %s", selectorDesc(step.Selector)))
 	}
 
-	x := float64(info.Bounds.X + info.Bounds.Width/2)
-	y := float64(info.Bounds.Y + info.Bounds.Height/2)
+	px, py, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+	if perr != nil {
+		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+	}
+	x, y := float64(px), float64(py)
 
 	duration := float64(step.DurationMs) / 1000.0
 	if duration <= 0 {
@@ -274,11 +280,23 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 	// Wait for keyboard to be ready by confirming a text field is focused.
 	// Poll GetActiveElement up to 1s (5 attempts, 200ms apart) similar to
 	// original Maestro's InputTextRouteHandler.swift keyboard wait.
+	focused := false
 	for i := 0; i < 5; i++ {
 		if elemID, err := d.client.GetActiveElement(); err == nil && elemID != "" {
+			focused = true
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Nothing ever took focus, so these keys have nowhere to land. Typing
+	// anyway is how text ends up somewhere other than the field the flow named
+	// while the step still reports success — the failure #139 chased on
+	// Android. Fail here instead, where the cause is still legible.
+	if !focused {
+		err := fmt.Errorf("no element took keyboard focus within 1s")
+		return errorResult(err, "inputText: "+err.Error()+
+			" — the text would have been typed with nothing focused; check that the preceding tap focused a text field")
 	}
 
 	if err := d.client.SendKeys(text, d.typingFrequency); err != nil {

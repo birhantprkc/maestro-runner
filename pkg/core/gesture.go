@@ -234,3 +234,24 @@ func SwipeCoordsFrom(direction string, originX, originY, travel, screenW, screen
 		return 0, 0, 0, 0, fmt.Errorf("invalid swipe direction: %q", direction)
 	}
 }
+
+// PointInBounds resolves where inside b a gesture aimed with `point:` should
+// land. An empty point means the centre, matching the behaviour before `point:`
+// was honoured.
+//
+// doubleTapOn and longPressOn accept `point:` in YAML — Selector carries the
+// field and the parser fills it — but the drivers tapped Bounds.Center() and
+// discarded it. Aiming was silently dropped, which matters most on a text
+// editor: the centre is often blank space past the end of the content, and
+// double-tapping blank space selects no word and raises no context menu (#140).
+func PointInBounds(point string, b Bounds) (x, y int, err error) {
+	cx, cy := b.Center()
+	if point == "" || b.Width <= 0 {
+		return cx, cy, nil
+	}
+	dx, dy, perr := ParsePointCoords(point, b.Width, b.Height)
+	if perr != nil {
+		return 0, 0, perr
+	}
+	return b.X + dx, b.Y + dy, nil
+}

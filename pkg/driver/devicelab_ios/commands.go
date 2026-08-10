@@ -595,7 +595,10 @@ func (d *Driver) handleDoubleTap(s *flow.DoubleTapOnStep) *core.CommandResult {
 	if node == nil {
 		return core.ErrorResult(fmt.Errorf("element not found"), "element not found")
 	}
-	cx, cy := centerOf(node)
+	cx, cy, perr := pointOf(node, s.Selector.Point)
+	if perr != nil {
+		return core.ErrorResult(perr, "doubleTap: "+perr.Error())
+	}
 	ctx, cancel := d.callTimeout()
 	defer cancel()
 	if _, err := d.client.Call(ctx, Command{
@@ -701,7 +704,10 @@ func (d *Driver) handleLongPress(s *flow.LongPressOnStep) *core.CommandResult {
 	if node == nil {
 		return core.ErrorResult(fmt.Errorf("element not found"), "element not found")
 	}
-	cx, cy := centerOf(node)
+	cx, cy, perr := pointOf(node, s.Selector.Point)
+	if perr != nil {
+		return core.ErrorResult(perr, "longPress: "+perr.Error())
+	}
 	durationMs := 800.0
 	if s.DurationMs > 0 {
 		durationMs = float64(s.DurationMs)
@@ -1168,6 +1174,24 @@ func (d *Driver) hierarchyJSON() ([]byte, error) {
 
 func centerOf(n *SnapshotNode) (float64, float64) {
 	return n.Rect.X + n.Rect.Width/2, n.Rect.Y + n.Rect.Height/2
+}
+
+// pointOf resolves a `point:` inside n, falling back to its centre when unset.
+//
+// Mirrors core.PointInBounds but stays in float space: iOS rects are points,
+// not pixels, and rounding to int before offsetting would shift the target on
+// small controls. `point:` was previously parsed and then discarded here, the
+// same omission the Android drivers had (#140).
+func pointOf(n *SnapshotNode, point string) (float64, float64, error) {
+	if point == "" || n.Rect.Width <= 0 || n.Rect.Height <= 0 {
+		cx, cy := centerOf(n)
+		return cx, cy, nil
+	}
+	dx, dy, err := core.ParsePointCoords(point, int(n.Rect.Width), int(n.Rect.Height))
+	if err != nil {
+		return 0, 0, err
+	}
+	return n.Rect.X + float64(dx), n.Rect.Y + float64(dy), nil
 }
 
 // isDisplayed approximates Maestro's "displayed" predicate. agent-device's

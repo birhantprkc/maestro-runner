@@ -258,3 +258,44 @@ func TestSwipeCoordsForElement(t *testing.T) {
 		}
 	})
 }
+
+// TestPointInBounds covers #140: doubleTapOn/longPressOn accept `point:` but
+// every driver used to tap the element centre and discard it. On a text editor
+// the centre is often blank space past the end of the content, where a
+// double-tap selects no word and raises no context menu.
+func TestPointInBounds(t *testing.T) {
+	b := Bounds{X: 100, Y: 200, Width: 400, Height: 80}
+
+	tests := []struct {
+		name         string
+		point        string
+		bounds       Bounds
+		wantX, wantY int
+		wantErr      bool
+	}{
+		{"empty point keeps the centre", "", b, 300, 240, false},
+		{"percentages resolve inside the element", "20%, 50%", b, 180, 240, false},
+		{"top-left corner", "0%, 0%", b, 100, 200, false},
+		{"bottom-right corner", "100%, 100%", b, 500, 280, false},
+		{"zero-width bounds fall back to the centre", "20%, 50%", Bounds{}, 0, 0, false},
+		{"malformed point is reported", "nonsense", b, 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x, y, err := PointInBounds(tt.point, tt.bounds)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error for a malformed point")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PointInBounds() error = %v", err)
+			}
+			if x != tt.wantX || y != tt.wantY {
+				t.Errorf("got (%d,%d), want (%d,%d)", x, y, tt.wantX, tt.wantY)
+			}
+		})
+	}
+}

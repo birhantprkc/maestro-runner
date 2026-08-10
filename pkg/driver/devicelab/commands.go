@@ -275,7 +275,7 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %v", err))
 	}
 
-	x, y, perr := tapPointInBounds(step.Selector.Point, info.Bounds)
+	x, y, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
 	if perr != nil {
 		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
 	}
@@ -284,26 +284,6 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 	}
 
 	return successResult("Double tapped on element", info)
-}
-
-// tapPointInBounds resolves where inside b a gesture should land. An empty
-// point means the centre, matching the previous behaviour.
-//
-// doubleTapOn and longPressOn accept `point:` in YAML — Selector carries the
-// field and the parser fills it — but every driver tapped Bounds.Center()
-// and never read it. Aiming was silently discarded, which matters most on a
-// text editor: the centre is often blank space past the end of the content, and
-// double-tapping blank space selects no word and raises no context menu (#140).
-func tapPointInBounds(point string, b core.Bounds) (int, int, error) {
-	cx, cy := b.Center()
-	if point == "" || b.Width <= 0 {
-		return cx, cy, nil
-	}
-	dx, dy, err := core.ParsePointCoords(point, b.Width, b.Height)
-	if err != nil {
-		return 0, 0, err
-	}
-	return b.X + dx, b.Y + dy, nil
 }
 
 func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
@@ -323,7 +303,7 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 		duration = 1000 // default 1 second
 	}
 
-	x, y, perr := tapPointInBounds(step.Selector.Point, info.Bounds)
+	x, y, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
 	if perr != nil {
 		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
 	}
