@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.23] - 2026-08-11
+
+This release is about **silent failures** — steps that reported success while doing nothing, or while acting on the wrong element. Four separate commands were quietly discarding a parameter, taps could land on the soft keyboard and report success, and text could be typed into a field the flow never named. Alongside those: dark-mode control, a device-free `lint` command, and per-step latency in the report.
+
+### Added
+- **Dark mode control** — `setDarkMode`, `toggleDarkMode`, `assertDarkMode` and `assertLightMode`. Dark-mode bugs are visual and pair naturally with `assertScreenshot`, but there was no way to put a device into a known appearance or assert the one it is in. Android uses `cmd uimode night`; iOS simulators use `simctl ui appearance` on both the WDA and DeviceLab iOS drivers.
+  ```yaml
+  - setDarkMode: dark      # or: light, or {enabled: true}
+  - assertDarkMode
+  - toggleDarkMode
+  - assertLightMode
+  ```
+  Physical iOS devices and web return an explicit error rather than a silent no-op — iOS exposes no appearance hook outside the simulator, and web dark mode is a different mechanism (CDP `prefers-color-scheme`).
+- **`lint` subcommand** — parse flow files with the runner's own parser and report syntax errors without a device. Anything that would abort a run at startup is caught in milliseconds. Non-zero exit on failure, so it drops straight into a CI step.
+  ```bash
+  maestro-runner lint flows/
+  ```
+- **`hierarchy --screenshot <path>`** — capture a screenshot from the same session that produced the tree. Two separate invocations pay driver startup twice and can straddle a UI change, leaving a tree and an image that disagree about what was on screen.
+- **Per-step latency in `report.json`** — each flow now carries `stepLatency` with `p50`/`p95`/`max`/`mean` and the slowest command type. A wall-clock total hides the shape of a slowdown; percentiles separate "one command became pathological" from "everything drifted", and CI can gate on them.
+- **`point:` on `swipe: from:`** — choose where inside a scrollable the gesture starts. Independent of `distance:`, so a point re-aims a swipe without lengthening it.
+  ```yaml
+  - swipe:
+      from: {id: editor-input, point: "20%, 50%"}
+      direction: DOWN
+      distance: 0.4
+  ```
+
+### Fixed
+- **`assertScreenshot` reported "100.00% match is below threshold 100.00%"** — `%.2f` rounded 99.9967% up, so a genuine few-pixel difference read like a runner bug. The message now reports the differing/total pixel counts and widens precision until match and threshold no longer print identically: `99.997% match (threshold: 100.000%, 1 of 30000 pixels differ)`. No epsilon was added — `thresholdPercentage: 100` means zero differing pixels, matching Maestro, and exact matches already returned exactly 100 ([#138](https://github.com/devicelab-dev/maestro-runner/issues/138)).
+- **`cropOn` crops changed size between runs** — origin and size were truncated independently, so with a driver that halves the screenshot an element of height 131 cropped to 65 at y=100 and 66 at y=101. The comparison then rejected the pair on size before looking at a pixel. Rounding origin and size separately makes crop dimensions depend only on the element's size. Stale `_diff.png` files are also removed on a size mismatch — previously the "check the diff image" hint pointed at an artifact from an earlier run that looked identical to the capture ([#138](https://github.com/devicelab-dev/maestro-runner/issues/138)).
+- **Taps could land on the soft keyboard and report success** — the occlusion guard only ran when the *previous* step was an input step, so a keyboard raised by an `autoFocus` field or left up across navigation was never checked. DeviceLab also allowed a 50px margin below the reported keyboard top, but the IME consumes touches across its whole touchable region — the suggestion strip included. Measured on a Pixel 4a: the region starts at y=1428, a tap at y=1439 was swallowed while one at y=1414 focused the field. uiautomator2 never had that margin, which is why the failure was DeviceLab-only. Such taps now fail with the actionable `hideKeyboard` hint ([#139](https://github.com/devicelab-dev/maestro-runner/issues/139)).
+- **`point:` was silently ignored on `doubleTapOn` and `longPressOn`** — the parser filled it, then every driver tapped the element's centre and discarded it. It matters most on a text editor: the centre is often blank space past the end of the content, and double-tapping blank space selects no word and opens no context menu. Fixed on all four drivers — Android verified on RNTester (a field whose text ends before the centre failed 3/3 and passes 3/3 aimed at `point: "10%, 50%"`), iOS verified on a simulator ([#140](https://github.com/devicelab-dev/maestro-runner/issues/140)).
+- **`distance:` was ignored on `swipe: from:`** — honoured only for screen swipes, while the element branch always travelled the anchor's own size. Scrolling from a small anchor moved almost nothing: a 77px input produced a ~76px drag and no scroll at all ([#141](https://github.com/devicelab-dev/maestro-runner/issues/141)).
+- **DeviceLab swipes scrolled a different distance on every run** — `adb shell input swipe` always lifts the pointer at speed, so the view flings, and fling momentum comes from event timings that shift with machine load. Measured spread over identical runs: 114px at the 300ms default, 22px at `duration: 1200`, still 14px at 6000ms. Swipes now go through the on-device agent, which spends the touch slop up front and holds the pointer still before lifting. Measured over 4 runs: 1053/991/1029/1055 via adb (64px spread) against 870 every time via the agent. ADB remains the fallback when the agent is unreachable ([#141](https://github.com/devicelab-dev/maestro-runner/issues/141)).
+- **iOS `inputText` could type into the wrong element and report success** — the drivers tapped to focus and typed immediately with nothing checking the text arrived, the iOS shape of the keyPress misdirection above. Verifying focus up front is impossible — the iOS runner never populates `focused` in its snapshot (confirmed on a simulator). devicelab_ios now re-reads the target and checks its value moved; WDA now fails when nothing ever takes keyboard focus instead of sending keys anyway. Both are best-effort: with no target to re-read, verification stays silent rather than inventing a failure.
+- **`copyTextFrom` returned empty for DeviceLab cached elements** — `Element.Attribute()` dereferenced a nil HTTP client for elements resolved from a hierarchy snapshot, which could crash the runner, and there was no fallback to the accessibility label the snapshot already carries.
+- **CI had been red since 2026-07-21** — two `ineffassign` findings failed every lint run, gating Build and Release the whole time. golangci-lint is now pinned rather than tracking `latest`, which would have turned the build red on 61 pre-existing findings the moment it rolled to v2.
+
+### Changed
+- **Taps on keyboard-covered elements now fail** instead of landing on the keyboard. This is the intended fix, but it can surface new failures in flows that were quietly tapping the wrong thing — add `- hideKeyboard` or scroll the field into view.
+- **DeviceLab swipes scroll further** than before, because less travel is lost to touch slop and the pacing is accurate. Re-record screenshot baselines taken after a swipe.
+- **The bundled Android agent APK changed.** A runner-only update will not deliver the deterministic-swipe fix.
+
+### Contributors
+
+[@kacperzolkiewski](https://github.com/kacperzolkiewski)
+1. `assertScreenshot` reporting "100.00% match is below threshold 100.00%", and `cropOn` crops differing by a pixel between runs ([#138](https://github.com/devicelab-dev/maestro-runner/issues/138))
+2. `inputText` with `keyPress: true` entering partial or wrong text on Android ([#139](https://github.com/devicelab-dev/maestro-runner/issues/139))
+3. `doubleTapOn` not opening the text-selection context menu ([#140](https://github.com/devicelab-dev/maestro-runner/issues/140))
+4. `swipe` not scrolling reliably in a React Native input, especially on CI ([#141](https://github.com/devicelab-dev/maestro-runner/issues/141))
+
 ## [1.1.22] - 2026-07-31
 
 The headline is the community-contributed **`hierarchy` subcommand** — dump the on-device view hierarchy, normalized to one JSON tree across every driver — and **`addMedia` working on all platforms**, including real iOS devices via on-device PhotoKit (a capability beyond stock Maestro). Alongside them: a `swipe` distance parameter, deeper iOS snapshots for React Native trees, and a batch of correctness fixes — escaped-metacharacter `text:` selectors, `${VAR}` expansion in device-control steps, `#`/Shift typing on DeviceLab Android, DeviceLab iOS `clearState`, and transient WebView/CDP retries.
