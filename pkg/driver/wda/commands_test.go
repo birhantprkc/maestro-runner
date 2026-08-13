@@ -5020,6 +5020,14 @@ func TestInputTextFailsWithNeitherKeyboardNorActiveElement(t *testing.T) {
 	if !strings.Contains(result.Message, "keyboard") {
 		t.Errorf("expected the message to mention the keyboard, got: %s", result.Message)
 	}
+	// The message has to say what was actually observed, so a report like #143
+	// arrives already diagnosed rather than needing a round trip.
+	if !strings.Contains(result.Message, "active element unavailable") {
+		t.Errorf("expected the message to say what the active element query observed, got: %s", result.Message)
+	}
+	if !strings.Contains(result.Message, "keyboard not on screen") {
+		t.Errorf("expected the message to say what the keyboard query observed, got: %s", result.Message)
+	}
 }
 
 // A focused element alone is still sufficient — the original signal must keep

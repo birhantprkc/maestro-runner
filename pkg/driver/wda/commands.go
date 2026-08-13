@@ -289,8 +289,8 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 	// anyway is how text ends up somewhere other than the field the flow named
 	// while the step still reports success — the failure #139 chased on
 	// Android. Fail here instead, where the cause is still legible.
-	if !d.waitForTypingTarget() {
-		err := fmt.Errorf("no keyboard appeared and no element took keyboard focus within 1s")
+	if ok, observed := d.waitForTypingTarget(); !ok {
+		err := fmt.Errorf("no keyboard appeared and no element took keyboard focus within 1s (%s)", observed)
 		return errorResult(err, "inputText: "+err.Error()+
 			" — the text would have been typed with nothing focused; check that the preceding tap focused a text field")
 	}
@@ -321,25 +321,51 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 // therefore rejected flows that had always worked (#143); requiring only that
 // *something* can receive the keys keeps the #139 protection without depending
 // on the field being individually addressable.
-func (d *Driver) waitForTypingTarget() bool {
+// It also returns a short description of what it last observed when it finds
+// nothing. Both signals failing is ambiguous from the outside — a query that
+// errored looks exactly like one that legitimately reported nothing focused —
+// and that ambiguity is what made the original report of #143 hard to act on.
+// Saying which happened, and why, turns the next such report into a diagnosis.
+func (d *Driver) waitForTypingTarget() (bool, string) {
+	var observed string
 	for i := 0; i < 5; i++ {
 		if i > 0 {
 			time.Sleep(200 * time.Millisecond)
 		}
-		if elemID, err := d.client.GetActiveElement(); err == nil && elemID != "" {
-			return true
+
+		// GetActiveElement reports "nothing is focused" as an error rather than
+		// an empty id, and another caller depends on that, so the reason is
+		// carried through as-is instead of being reinterpreted here.
+		elemID, err := d.client.GetActiveElement()
+		switch {
+		case err == nil && elemID != "":
+			return true, ""
+		case err != nil:
+			observed = fmt.Sprintf("active element unavailable (%v)", err)
+		default:
+			observed = "active element unavailable (empty reference)"
 		}
-		if d.keyboardVisible() {
-			return true
+
+		visible, kbErr := d.keyboardVisible()
+		if visible {
+			return true, ""
+		}
+		if kbErr != nil {
+			observed += fmt.Sprintf("; keyboard query failed (%v)", kbErr)
+		} else {
+			observed += "; keyboard not on screen"
 		}
 	}
-	return false
+	return false, observed
 }
 
 // keyboardVisible reports whether the software keyboard is on screen.
-func (d *Driver) keyboardVisible() bool {
+func (d *Driver) keyboardVisible() (bool, error) {
 	ids, err := d.client.FindElements("class chain", "**/XCUIElementTypeKeyboard")
-	return err == nil && len(ids) > 0
+	if err != nil {
+		return false, err
+	}
+	return len(ids) > 0, nil
 }
 
 func (d *Driver) eraseText(step *flow.EraseTextStep) *core.CommandResult {
