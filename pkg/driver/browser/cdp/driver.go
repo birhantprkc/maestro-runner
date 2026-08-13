@@ -593,15 +593,20 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 	case *flow.ClearNetworkMocksStep:
 		result = d.clearNetworkMocks()
 
+	// Dark mode is the page's prefers-color-scheme rather than an OS switch —
+	// see applyDarkMode.
+	case *flow.SetDarkModeStep:
+		result = d.applyDarkMode(s.Enabled)
+	case *flow.ToggleDarkModeStep:
+		result = d.toggleDarkMode()
+	case *flow.AssertDarkModeStep:
+		result = d.assertDarkModeIs(true)
+	case *flow.AssertLightModeStep:
+		result = d.assertDarkModeIs(false)
+
 	// Unsupported — mobile-only or not applicable to web
 	case *flow.SetAirplaneModeStep, *flow.ToggleAirplaneModeStep:
 		result = unsupportedResult("airplane mode is not supported on web platform")
-	// Web dark mode is expressible via CDP prefers-color-scheme emulation, but
-	// that is a different mechanism from the device-appearance switch these
-	// steps drive; wiring it is a separate change.
-	case *flow.SetDarkModeStep, *flow.ToggleDarkModeStep,
-		*flow.AssertDarkModeStep, *flow.AssertLightModeStep:
-		result = unsupportedResult("dark mode is not yet supported on web platform")
 	case *flow.TravelStep:
 		result = unsupportedResult("travel is not supported on web platform")
 	case *flow.AddMediaStep:

@@ -2106,3 +2106,76 @@ func (d *Driver) waitForActionable(elem *rod.Element, timeoutMs int) error {
 	}
 	return fmt.Errorf("element not actionable within %dms (last rejection: %s)", timeoutMs, reason)
 }
+
+// ============================================================================
+// Dark Mode
+// ============================================================================
+
+// On the web there is no device appearance to switch. What a page actually
+// responds to is the prefers-color-scheme media feature, so these commands
+// drive that: setDarkMode overrides the feature for this page via
+// Emulation.setEmulatedMedia, and the assertions read back what the page
+// currently sees through window.matchMedia.
+//
+// Reading the effective value rather than remembering what was set means
+// assertDarkMode is meaningful without a preceding setDarkMode — it reports the
+// browser's own preference, which for headless Chrome is light unless the
+// launch flags say otherwise.
+const colorSchemeFeature = "prefers-color-scheme"
+
+// colorSchemeValue is the media-feature value for a dark-mode boolean.
+func colorSchemeValue(enabled bool) string {
+	if enabled {
+		return "dark"
+	}
+	return "light"
+}
+
+// applyDarkMode overrides prefers-color-scheme for the page.
+//
+// setEmulatedMedia replaces the whole override rather than merging into it, so
+// the call has to carry every feature that should stay in force. Only
+// prefers-color-scheme is managed here, and Media is deliberately left empty:
+// that disables any media *type* override (print/screen), which this command
+// never sets and must not clobber into something else.
+func (d *Driver) applyDarkMode(enabled bool) *core.CommandResult {
+	err := proto.EmulationSetEmulatedMedia{
+		Features: []*proto.EmulationMediaFeature{
+			{Name: colorSchemeFeature, Value: colorSchemeValue(enabled)},
+		},
+	}.Call(d.page)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to set dark mode: %v", err))
+	}
+	return successResult(fmt.Sprintf("Set %s mode", core.DarkModeStateName(enabled)), nil)
+}
+
+func (d *Driver) toggleDarkMode() *core.CommandResult {
+	current, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to read dark mode: %v", err))
+	}
+	return d.applyDarkMode(!current)
+}
+
+func (d *Driver) assertDarkModeIs(want bool) *core.CommandResult {
+	got, err := d.currentDarkMode()
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to read dark mode: %v", err))
+	}
+	if got != want {
+		assertErr := core.DarkModeAssertionError(want, got)
+		return errorResult(assertErr, assertErr.Error())
+	}
+	return successResult(fmt.Sprintf("Page is in %s mode", core.DarkModeStateName(want)), nil)
+}
+
+// currentDarkMode reports whether the page currently resolves
+// prefers-color-scheme to dark, override or not.
+func (d *Driver) currentDarkMode() (bool, error) {
+	obj, err := d.page.Eval(`() => window.matchMedia('(prefers-color-scheme: dark)').matches`)
+	if err != nil {
+		return false, err
+	}
+	return obj.Value.Bool(), nil
+}
