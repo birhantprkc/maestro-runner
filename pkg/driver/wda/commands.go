@@ -261,12 +261,17 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 		if err != nil {
 			return errorResult(err, fmt.Sprintf("Element not found: %s", selectorDesc(step.Selector)))
 		}
-		// If we have element ID, send keys directly to the element
+		// If we have element ID, send keys directly to the element.
+		//
+		// A failure here is not fatal: the resolved element may not accept keys
+		// directly — an accessibility-collapsed container publishes as Other,
+		// and WDA rejects send-keys on a non-text element — while the field
+		// inside it types perfectly well once focused. So fall through to the
+		// tap-and-type path rather than failing the step outright (#143).
 		if info.ID != "" {
-			if err := d.client.ElementSendKeys(info.ID, text, d.typingFrequency); err != nil {
-				return errorResult(err, "Input text to element failed")
+			if err := d.client.ElementSendKeys(info.ID, text, d.typingFrequency); err == nil {
+				return successResult(fmt.Sprintf("Entered text: %s%s", text, unicodeWarning), info)
 			}
-			return successResult(fmt.Sprintf("Entered text: %s%s", text, unicodeWarning), info)
 		}
 		// Fallback: tap to focus first
 		x := float64(info.Bounds.X + info.Bounds.Width/2)
@@ -277,24 +282,15 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 		time.Sleep(100 * time.Millisecond) // Wait for focus
 	}
 
-	// Wait for keyboard to be ready by confirming a text field is focused.
-	// Poll GetActiveElement up to 1s (5 attempts, 200ms apart) similar to
-	// original Maestro's InputTextRouteHandler.swift keyboard wait.
-	focused := false
-	for i := 0; i < 5; i++ {
-		if elemID, err := d.client.GetActiveElement(); err == nil && elemID != "" {
-			focused = true
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	// Nothing ever took focus, so these keys have nowhere to land. Typing
+	// Wait for the keyboard to be ready, mirroring the wait in original
+	// Maestro's InputTextRouteHandler.swift.
+	//
+	// Nothing to type into means these keys have nowhere to land, and typing
 	// anyway is how text ends up somewhere other than the field the flow named
 	// while the step still reports success — the failure #139 chased on
 	// Android. Fail here instead, where the cause is still legible.
-	if !focused {
-		err := fmt.Errorf("no element took keyboard focus within 1s")
+	if !d.waitForTypingTarget() {
+		err := fmt.Errorf("no keyboard appeared and no element took keyboard focus within 1s")
 		return errorResult(err, "inputText: "+err.Error()+
 			" — the text would have been typed with nothing focused; check that the preceding tap focused a text field")
 	}
@@ -304,6 +300,46 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 	}
 
 	return successResult(fmt.Sprintf("Entered text: %s%s", text, unicodeWarning), nil)
+}
+
+// waitForTypingTarget polls up to about a second for evidence that typed keys
+// have somewhere to land, and reports whether it found any.
+//
+// Two signals count, and either alone is sufficient:
+//
+//   - an element reporting keyboard focus, via /element/active
+//   - the software keyboard being on screen — iOS does not raise it unless
+//     something holds first responder
+//
+// The keyboard signal is what makes this work on accessibility-collapsed
+// hierarchies. When a container is itself marked as an accessibility element —
+// a React Native View carrying `accessible` or an accessibilityLabel wrapped
+// around a TextInput — iOS publishes only the parent, typed Other with the
+// merged label, and no descendant reports hasKeyboardFocus. /element/active
+// resolves through that property, so it finds nothing even though the field is
+// genuinely focused and SendKeys reaches it. Requiring an active element
+// therefore rejected flows that had always worked (#143); requiring only that
+// *something* can receive the keys keeps the #139 protection without depending
+// on the field being individually addressable.
+func (d *Driver) waitForTypingTarget() bool {
+	for i := 0; i < 5; i++ {
+		if i > 0 {
+			time.Sleep(200 * time.Millisecond)
+		}
+		if elemID, err := d.client.GetActiveElement(); err == nil && elemID != "" {
+			return true
+		}
+		if d.keyboardVisible() {
+			return true
+		}
+	}
+	return false
+}
+
+// keyboardVisible reports whether the software keyboard is on screen.
+func (d *Driver) keyboardVisible() bool {
+	ids, err := d.client.FindElements("class chain", "**/XCUIElementTypeKeyboard")
+	return err == nil && len(ids) > 0
 }
 
 func (d *Driver) eraseText(step *flow.EraseTextStep) *core.CommandResult {
@@ -1741,10 +1777,13 @@ func getIOSPermissions() []string {
 // Dark mode (Maestro #2507)
 // ============================================================================
 
-// Appearance is only settable on simulators — `simctl ui` has no real-device
-// equivalent, and iOS exposes no automation hook for it, so a physical device
-// returns a clear error rather than a silent no-op that would make a flow look
-// like it passed in the wrong appearance.
+// Appearance is only settable on simulators under this driver, because
+// `simctl ui` has no real-device equivalent and WebDriverAgent exposes no
+// endpoint for it. iOS itself can do this on a device — XCUIDevice has an
+// appearance property — which is why the devicelab_ios driver, whose runner is
+// a UI test, supports real hardware. Here a physical device gets a clear error
+// rather than a silent no-op that would make a flow look like it passed in the
+// wrong appearance.
 func (d *Driver) setDarkMode(step *flow.SetDarkModeStep) *core.CommandResult {
 	if err := d.requireSimulatorForAppearance("setDarkMode"); err != nil {
 		return errorResult(err, err.Error())
@@ -1798,7 +1837,8 @@ func (d *Driver) currentDarkMode() (bool, error) {
 
 func (d *Driver) requireSimulatorForAppearance(what string) error {
 	if d.info == nil || !d.info.IsSimulator {
-		return fmt.Errorf("%s is only supported on iOS simulators — iOS exposes no way to set appearance on a physical device", what)
+		return fmt.Errorf("%s is not supported on a physical device with the wda driver — "+
+			"WebDriverAgent has no appearance endpoint; use --driver devicelab_ios for dark mode on real hardware", what)
 	}
 	if d.udid == "" {
 		return fmt.Errorf("%s requires a simulator UDID", what)

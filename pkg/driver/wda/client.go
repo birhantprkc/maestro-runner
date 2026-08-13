@@ -500,15 +500,27 @@ func (c *Client) ElementAttribute(elementID, name string) (string, error) {
 }
 
 // GetActiveElement returns the currently focused element ID.
+//
+// The reference is read under either the legacy ELEMENT key or the W3C
+// element-6066 key, the same way FindElements does. Reading only ELEMENT would
+// make a W3C-shaped response indistinguishable from "nothing is focused", which
+// callers act on.
 func (c *Client) GetActiveElement() (string, error) {
 	resp, err := c.get(c.sessionPath("/element/active"))
 	if err != nil {
 		return "", err
 	}
 	if value, ok := resp["value"].(map[string]interface{}); ok {
-		// WDA returns element ID as ELEMENT key
-		if elemID, ok := value["ELEMENT"].(string); ok {
+		if elemID, ok := value["ELEMENT"].(string); ok && elemID != "" {
 			return elemID, nil
+		}
+		for key, v := range value {
+			if !strings.HasPrefix(key, "element-") {
+				continue
+			}
+			if elemID, ok := v.(string); ok && elemID != "" {
+				return elemID, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("no active element")

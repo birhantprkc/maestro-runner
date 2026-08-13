@@ -4924,3 +4924,237 @@ func TestSetLocationSimulatorSimctlError(t *testing.T) {
 		t.Errorf("expected failure message, got: %s", result.Message)
 	}
 }
+
+// =============================================================================
+// inputText typing-target gate (#143)
+// =============================================================================
+
+// collapsedFieldServer models the React Native accessibility-collapsed case
+// from #143: the container is itself an accessibility element, so iOS publishes
+// only the parent (typed Other, carrying the merged label) and no descendant
+// reports hasKeyboardFocus. /element/active resolves through that property and
+// so returns nothing, while the keyboard is genuinely on screen and the field
+// genuinely has first responder.
+func collapsedFieldServer(t *testing.T, sentKeys *bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/element/active") {
+			// WDA answers with no element reference at all.
+			jsonResponse(w, map[string]interface{}{"value": map[string]interface{}{}})
+			return
+		}
+		if strings.HasSuffix(path, "/elements") {
+			body, _ := io.ReadAll(r.Body)
+			var payload map[string]interface{}
+			_ = json.Unmarshal(body, &payload)
+			if v, _ := payload["value"].(string); strings.Contains(v, "XCUIElementTypeKeyboard") {
+				jsonResponse(w, map[string]interface{}{
+					"value": []interface{}{map[string]interface{}{"ELEMENT": "keyboard-1"}},
+				})
+				return
+			}
+			jsonResponse(w, map[string]interface{}{"value": []interface{}{}})
+			return
+		}
+		if strings.Contains(path, "/wda/keys") {
+			*sentKeys = true
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+}
+
+// The regression from #143: typing must proceed when the keyboard is up, even
+// though no element reports keyboard focus.
+func TestInputTextAcceptsVisibleKeyboardWithoutActiveElement(t *testing.T) {
+	var sentKeys bool
+	server := collapsedFieldServer(t, &sentKeys)
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	result := driver.inputText(&flow.InputTextStep{Text: "1234567"})
+
+	if !result.Success {
+		t.Fatalf("expected typing to proceed with the keyboard up, got: %s", result.Message)
+	}
+	if !sentKeys {
+		t.Error("expected the text to actually be sent")
+	}
+}
+
+// The #139 protection has to survive the relaxation: with neither an active
+// element nor a keyboard, the keys have nowhere to land and the step must fail
+// rather than silently type into whatever happens to be focused.
+func TestInputTextFailsWithNeitherKeyboardNorActiveElement(t *testing.T) {
+	var sentKeys bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{"value": map[string]interface{}{}})
+			return
+		}
+		if strings.HasSuffix(path, "/elements") {
+			jsonResponse(w, map[string]interface{}{"value": []interface{}{}})
+			return
+		}
+		if strings.Contains(path, "/wda/keys") {
+			sentKeys = true
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	result := driver.inputText(&flow.InputTextStep{Text: "hello"})
+
+	if result.Success {
+		t.Fatal("expected failure when nothing can receive the keys")
+	}
+	if sentKeys {
+		t.Error("expected no keys to be sent when there is no typing target")
+	}
+	if !strings.Contains(result.Message, "keyboard") {
+		t.Errorf("expected the message to mention the keyboard, got: %s", result.Message)
+	}
+}
+
+// A focused element alone is still sufficient — the original signal must keep
+// working for apps that do expose their fields.
+func TestInputTextAcceptsActiveElementWithoutKeyboardQuery(t *testing.T) {
+	var sentKeys bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.Contains(path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "field-1"},
+			})
+			return
+		}
+		if strings.HasSuffix(path, "/elements") {
+			t.Error("keyboard should not be queried once an element reports focus")
+			jsonResponse(w, map[string]interface{}{"value": []interface{}{}})
+			return
+		}
+		if strings.Contains(path, "/wda/keys") {
+			sentKeys = true
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	if result := driver.inputText(&flow.InputTextStep{Text: "hello"}); !result.Success {
+		t.Fatalf("expected success, got: %s", result.Message)
+	}
+	if !sentKeys {
+		t.Error("expected the text to be sent")
+	}
+}
+
+// GetActiveElement must read the W3C element key too. Reading only ELEMENT made
+// a W3C-shaped response look identical to "nothing is focused".
+func TestGetActiveElementReadsW3CKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		jsonResponse(w, map[string]interface{}{
+			"value": map[string]interface{}{
+				"element-6066-11e4-a52e-4f735466cecf": "field-9",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		baseURL:    server.URL,
+		httpClient: http.DefaultClient,
+		sessionID:  "test-session",
+	}
+	elemID, err := client.GetActiveElement()
+	if err != nil {
+		t.Fatalf("expected the W3C key to be read, got %v", err)
+	}
+	if elemID != "field-9" {
+		t.Errorf("got element %q, want field-9", elemID)
+	}
+}
+
+// A selector that resolves to an accessibility-collapsed container publishes as
+// Other, and WDA rejects send-keys on a non-text element. The field inside it
+// still types once focused, so the step must fall through to tap-and-type
+// rather than failing outright (#143).
+func TestInputTextFallsBackWhenElementRejectsSendKeys(t *testing.T) {
+	var tapped, sentKeys bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+
+		if strings.HasSuffix(path, "/element") && r.Method == "POST" {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"ELEMENT": "container-1"},
+			})
+			return
+		}
+		if strings.Contains(path, "/element/") && strings.Contains(path, "/rect") {
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"x": 24.0, "y": 356.0, "width": 342.0, "height": 89.0},
+			})
+			return
+		}
+		if strings.Contains(path, "/element/") && strings.Contains(path, "/displayed") {
+			jsonResponse(w, map[string]interface{}{"value": true})
+			return
+		}
+		// Element send-keys is refused, the way WDA refuses a non-text element.
+		if strings.Contains(path, "/element/") && strings.Contains(path, "/value") {
+			w.WriteHeader(http.StatusInternalServerError)
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"error": "invalid element state"},
+			})
+			return
+		}
+		if strings.Contains(path, "/tap") {
+			tapped = true
+			jsonResponse(w, map[string]interface{}{"status": 0})
+			return
+		}
+		// No element reports keyboard focus — the collapse hides it.
+		if strings.Contains(path, "/element/active") {
+			jsonResponse(w, map[string]interface{}{"value": map[string]interface{}{}})
+			return
+		}
+		// ...but the keyboard is up.
+		if strings.HasSuffix(path, "/elements") {
+			jsonResponse(w, map[string]interface{}{
+				"value": []interface{}{map[string]interface{}{"ELEMENT": "keyboard-1"}},
+			})
+			return
+		}
+		if strings.Contains(path, "/wda/keys") {
+			sentKeys = true
+		}
+		jsonResponse(w, map[string]interface{}{"status": 0})
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	result := driver.inputText(&flow.InputTextStep{
+		Text:     "1234567",
+		Selector: flow.Selector{ID: "username, Enter phone number"},
+	})
+
+	if !result.Success {
+		t.Fatalf("expected fallback to tap-and-type, got: %s", result.Message)
+	}
+	if !tapped {
+		t.Error("expected the element to be tapped after send-keys was refused")
+	}
+	if !sentKeys {
+		t.Error("expected the text to be typed via the keyboard path")
+	}
+}
