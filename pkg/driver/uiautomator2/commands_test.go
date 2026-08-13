@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -170,7 +171,7 @@ func TestLaunchAppShellResolveActivity(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "com.example.app/.MainActivity",
+			"resolve-activity":             "com.example.app/.MainActivity",
 		},
 		fallback: "Success",
 	}
@@ -223,7 +224,7 @@ func TestLaunchAppShellAmStartForOlderAPI(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "25",
-			"resolve-activity":            "com.example.app/.MainActivity",
+			"resolve-activity":             "com.example.app/.MainActivity",
 		},
 		fallback: "Success",
 	}
@@ -287,7 +288,7 @@ func TestLaunchAppMonkeyFallbackResolveFailed(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "No activity found",
+			"resolve-activity":             "No activity found",
 		},
 		errors: map[string]error{
 			"dumpsys package": fmt.Errorf("dumpsys failed"),
@@ -319,7 +320,7 @@ func TestLaunchAppMonkeyAborted(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "No activity found",
+			"resolve-activity":             "No activity found",
 			"monkey":                       "monkey aborted",
 		},
 		errors: map[string]error{
@@ -392,7 +393,7 @@ func TestLaunchAppDumpsysFallbackWithArgs(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "No activity found",
+			"resolve-activity":             "No activity found",
 			"dumpsys package": "com.example.app/.MainActivity filter abc123\n" +
 				"  Action: \"android.intent.action.MAIN\"\n" +
 				"  Category: \"android.intent.category.LAUNCHER\"\n",
@@ -411,10 +412,10 @@ func TestLaunchAppDumpsysFallbackWithArgs(t *testing.T) {
 		t.Errorf("expected success via dumpsys fallback, got: %v", result.Error)
 	}
 
-	// Verify am start includes the extra
+	// Verify am start includes the extra, shell-quoted
 	foundExtra := false
 	for _, cmd := range shell.commands {
-		if strings.Contains(cmd, "--es key1") {
+		if strings.Contains(cmd, "--es 'key1' 'value1'") {
 			foundExtra = true
 		}
 	}
@@ -428,7 +429,7 @@ func TestLaunchAppDotPrefixRetry(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "com.example.app/MainActivity",
+			"resolve-activity":             "com.example.app/MainActivity",
 		},
 		fallback: "Success",
 	}
@@ -3940,11 +3941,11 @@ func TestResolveLauncherActivity(t *testing.T) {
 
 func TestLaunchWithMonkey(t *testing.T) {
 	tests := []struct {
-		name    string
-		appID   string
-		output  string
-		err     error
-		wantOK  bool
+		name   string
+		appID  string
+		output string
+		err    error
+		wantOK bool
 	}{
 		{
 			name:   "successful launch",
@@ -3999,7 +4000,7 @@ func TestLaunchAppViaShellWithArgTypes(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "com.example.app/.MainActivity",
+			"resolve-activity":             "com.example.app/.MainActivity",
 		},
 		fallback: "Success",
 	}
@@ -4008,7 +4009,7 @@ func TestLaunchAppViaShellWithArgTypes(t *testing.T) {
 	// Test with multiple argument types
 	args := map[string]interface{}{
 		"stringKey": "stringValue",
-		"intKey":    float64(42),    // JSON unmarshals numbers as float64
+		"intKey":    float64(42), // JSON unmarshals numbers as float64
 		"floatKey":  float64(3.14),
 		"boolKey":   true,
 	}
@@ -4023,16 +4024,18 @@ func TestLaunchAppViaShellWithArgTypes(t *testing.T) {
 	for _, cmd := range shell.commands {
 		if strings.Contains(cmd, "am start-activity") {
 			foundAmStart = true
-			if !strings.Contains(cmd, "--es stringKey") {
+			// Extras are shell-quoted; the numeric and boolean forms render
+			// from typed Go values so only their keys are quoted.
+			if !strings.Contains(cmd, "--es 'stringKey' 'stringValue'") {
 				t.Error("missing --es stringKey in command")
 			}
-			if !strings.Contains(cmd, "--ei intKey 42") {
+			if !strings.Contains(cmd, "--ei 'intKey' 42") {
 				t.Error("missing --ei intKey in command")
 			}
-			if !strings.Contains(cmd, "--ef floatKey") {
+			if !strings.Contains(cmd, "--ef 'floatKey'") {
 				t.Error("missing --ef floatKey in command")
 			}
-			if !strings.Contains(cmd, "--ez boolKey true") {
+			if !strings.Contains(cmd, "--ez 'boolKey' true") {
 				t.Error("missing --ez boolKey in command")
 			}
 		}
@@ -4051,8 +4054,8 @@ func TestLaunchAppViaShellAmStartError(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "com.example.app/.MainActivity",
-			"am start-activity":           "Error: Activity not started",
+			"resolve-activity":             "com.example.app/.MainActivity",
+			"am start-activity":            "Error: Activity not started",
 			"monkey":                       "Events injected: 1",
 		},
 		fallback: "",
@@ -4071,8 +4074,8 @@ func TestLaunchAppViaShellAmStartErrorWithArgs(t *testing.T) {
 	shell := &shellMock{
 		responses: map[string]string{
 			"getprop ro.build.version.sdk": "30",
-			"resolve-activity":            "com.example.app/.MainActivity",
-			"am start-activity":           "Error: Activity not started",
+			"resolve-activity":             "com.example.app/.MainActivity",
+			"am start-activity":            "Error: Activity not started",
 		},
 		fallback: "",
 	}
@@ -4321,5 +4324,155 @@ func TestScrollByAdbCoordinates(t *testing.T) {
 				t.Errorf("got %q, want %q", shell.commands, tt.wantCmd)
 			}
 		})
+	}
+}
+
+// ============================================================================
+// Shell quoting of flow-supplied text (agent-device #1645)
+// ============================================================================
+
+// shellArgv runs cmd through a real `sh` with the leading program replaced by a
+// function that prints its arguments one per line, so the result is exactly the
+// argv the device's shell would hand to `am` / `content`. Asserting on that
+// rather than on the command string is what catches a value that parses into
+// the wrong number of words.
+func shellArgv(t *testing.T, program, cmd string) []string {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh available")
+	}
+	script := program + `() { printf '%s\n' "$@"; }; ` + cmd
+	out, err := exec.Command(sh, "-c", script).Output()
+	if err != nil {
+		t.Fatalf("device shell would reject %q: %v", cmd, err)
+	}
+	return strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+}
+
+func containsArg(argv []string, want string) bool {
+	for _, a := range argv {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestOpenBrowserQuotesURL covers the case that motivated the fix: an
+// apostrophe in a URL used to close the surrounding quote early, turning the
+// rest of the URL into shell syntax. The command was a parse error rather than
+// a failing step, so the flow reported a driver error for a perfectly valid URL.
+func TestOpenBrowserQuotesURL(t *testing.T) {
+	urls := []string{
+		"https://example.com/search?q=it's",
+		"https://example.com/a b/c",
+		"https://example.com/?q=$HOME&x=`id`",
+		"myapp://item?title=Bob's \"thing\"",
+	}
+	for _, url := range urls {
+		t.Run(url, func(t *testing.T) {
+			mock := &MockShellExecutor{response: ""}
+			driver := &Driver{device: mock}
+
+			if result := driver.openBrowser(&flow.OpenBrowserStep{URL: url}); !result.Success {
+				t.Fatalf("expected success, got %v", result.Error)
+			}
+			argv := shellArgv(t, "am", mock.commands[0])
+			if !containsArg(argv, url) {
+				t.Errorf("URL reached the device as %q, want it intact as one argument %q", argv, url)
+			}
+		})
+	}
+}
+
+func TestOpenLinkQuotesLink(t *testing.T) {
+	browser := true
+	for _, tt := range []struct {
+		name string
+		step *flow.OpenLinkStep
+	}{
+		{"default", &flow.OpenLinkStep{Link: "myapp://path?name=O'Brien"}},
+		{"browser", &flow.OpenLinkStep{Link: "myapp://path?name=O'Brien", Browser: &browser}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &MockShellExecutor{response: ""}
+			driver := &Driver{device: mock}
+
+			if result := driver.openLink(tt.step); !result.Success {
+				t.Fatalf("expected success, got %v", result.Error)
+			}
+			argv := shellArgv(t, "am", mock.commands[0])
+			if !containsArg(argv, tt.step.Link) {
+				t.Errorf("link reached the device as %q, want %q intact", argv, tt.step.Link)
+			}
+		})
+	}
+}
+
+// TestLaunchAppQuotesArguments checks that a launch argument survives the shell
+// with its spaces and quotes, and as a single word — an unquoted multi-word
+// value used to split, so `am` saw only its first word and silently dropped the
+// rest.
+func TestLaunchAppQuotesArguments(t *testing.T) {
+	shell := &shellMock{
+		responses: map[string]string{
+			"getprop ro.build.version.sdk": "30",
+			"resolve-activity":             "com.example.app/.MainActivity",
+		},
+		fallback: "Success",
+	}
+	driver := &Driver{device: shell}
+
+	want := "Bob's \"favourite\" item"
+	result := driver.launchAppViaShell("com.example.app", map[string]interface{}{"title": want})
+	if !result.Success {
+		t.Fatalf("expected success, got %v", result.Error)
+	}
+
+	var amCmd string
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "am start-activity") {
+			amCmd = cmd
+		}
+	}
+	if amCmd == "" {
+		t.Fatal("expected an am start-activity command")
+	}
+	argv := shellArgv(t, "am", amCmd)
+	if !containsArg(argv, want) {
+		t.Errorf("argument reached the device as %q, want %q intact as one argument", argv, want)
+	}
+}
+
+// TestAddMediaQuotesRemotePath covers a filename with a space — the MediaStore
+// scan argument carried no quotes at all, so `my photo.jpg` arrived as two
+// arguments and the scan silently registered nothing.
+func TestAddMediaQuotesRemotePath(t *testing.T) {
+	dir := t.TempDir()
+	media := filepath.Join(dir, "my holiday photo.jpg")
+	if err := os.WriteFile(media, []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &MockShellExecutor{response: ""}
+	driver := &Driver{device: mock}
+
+	if result := driver.addMedia(&flow.AddMediaStep{Files: []string{media}}); !result.Success {
+		t.Fatalf("expected success, got %v", result.Error)
+	}
+
+	var scan string
+	for _, cmd := range mock.commands {
+		if strings.Contains(cmd, "scan_file") {
+			scan = cmd
+		}
+	}
+	if scan == "" {
+		t.Fatal("expected a scan_file command")
+	}
+	argv := shellArgv(t, "content", scan)
+	if !containsArg(argv, "/sdcard/Pictures/MaestroRunner/my holiday photo.jpg") {
+		t.Errorf("media path reached the device as %q, want it intact as one argument", argv)
 	}
 }

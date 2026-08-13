@@ -943,25 +943,28 @@ func (d *Driver) launchAppViaShell(appID string, arguments map[string]interface{
 	cmd := fmt.Sprintf("%s -W -n %s -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000",
 		amCmd, activity)
 
-	// Add intent extras for arguments
+	// Add intent extras for arguments. String values are quoted because they
+	// are free text from the flow — the numeric and boolean cases render from
+	// typed Go values and cannot carry shell syntax.
 	for key, value := range arguments {
+		k := core.ShellQuote(key)
 		switch v := value.(type) {
 		case string:
-			cmd += fmt.Sprintf(" --es %s '%s'", key, v)
+			cmd += fmt.Sprintf(" --es %s %s", k, core.ShellQuote(v))
 		case int:
-			cmd += fmt.Sprintf(" --ei %s %d", key, v)
+			cmd += fmt.Sprintf(" --ei %s %d", k, v)
 		case int64:
-			cmd += fmt.Sprintf(" --ei %s %d", key, v)
+			cmd += fmt.Sprintf(" --ei %s %d", k, v)
 		case float64:
 			if v == float64(int(v)) {
-				cmd += fmt.Sprintf(" --ei %s %d", key, int(v))
+				cmd += fmt.Sprintf(" --ei %s %d", k, int(v))
 			} else {
-				cmd += fmt.Sprintf(" --ef %s %f", key, v)
+				cmd += fmt.Sprintf(" --ef %s %f", k, v)
 			}
 		case bool:
-			cmd += fmt.Sprintf(" --ez %s %t", key, v)
+			cmd += fmt.Sprintf(" --ez %s %t", k, v)
 		default:
-			cmd += fmt.Sprintf(" --es %s '%v'", key, v)
+			cmd += fmt.Sprintf(" --es %s %s", k, core.ShellQuote(fmt.Sprintf("%v", v)))
 		}
 	}
 
@@ -1486,14 +1489,15 @@ func (d *Driver) openLink(step *flow.OpenLinkStep) *core.CommandResult {
 	}
 
 	// Build am start command
+	quoted := core.ShellQuote(link)
 	var cmd string
 	if step.Browser != nil && *step.Browser {
 		// Force open in browser - try common browser packages
 		// Chrome is most common, fallback to default browser activity
-		cmd = fmt.Sprintf("am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d '%s'", link)
+		cmd = fmt.Sprintf("am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d %s", quoted)
 	} else {
 		// Default: let system decide (may open in app if deep link is registered)
-		cmd = fmt.Sprintf("am start -a android.intent.action.VIEW -d '%s'", link)
+		cmd = fmt.Sprintf("am start -a android.intent.action.VIEW -d %s", quoted)
 	}
 
 	if _, err := d.device.Shell(cmd); err != nil {
@@ -1554,7 +1558,7 @@ func (d *Driver) openBrowser(step *flow.OpenBrowserStep) *core.CommandResult {
 	}
 
 	// Open URL in default browser
-	cmd := fmt.Sprintf("am start -a android.intent.action.VIEW -d '%s'", url)
+	cmd := fmt.Sprintf("am start -a android.intent.action.VIEW -d %s", core.ShellQuote(url))
 	if _, err := d.device.Shell(cmd); err != nil {
 		return errorResult(err, fmt.Sprintf("Failed to open browser: %v", err))
 	}
@@ -1584,7 +1588,7 @@ func (d *Driver) addMedia(step *flow.AddMediaStep) *core.CommandResult {
 		if core.IsVideoMedia(file) {
 			destDir = "/sdcard/Movies/MaestroRunner"
 		}
-		if _, err := d.device.Shell("mkdir -p " + destDir); err != nil {
+		if _, err := d.device.Shell("mkdir -p " + core.ShellQuote(destDir)); err != nil {
 			return errorResult(err, "Failed to create media directory")
 		}
 		remote := destDir + "/" + filepath.Base(file)
@@ -1595,9 +1599,10 @@ func (d *Driver) addMedia(step *flow.AddMediaStep) *core.CommandResult {
 		// it. The MEDIA_SCANNER_SCAN_FILE broadcast is deprecated and unreliable
 		// on API 29+, so scan the file directly via `content`; fall back to the
 		// broadcast on older devices where the method is unavailable.
-		scan := fmt.Sprintf("content call --uri content://media --method scan_file --arg %s", remote)
+		scan := fmt.Sprintf("content call --uri content://media --method scan_file --arg %s", core.ShellQuote(remote))
 		if _, err := d.device.Shell(scan); err != nil {
-			_, _ = d.device.Shell(fmt.Sprintf("am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://%s", remote))
+			_, _ = d.device.Shell(fmt.Sprintf("am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d %s",
+				core.ShellQuote("file://"+remote)))
 		}
 	}
 
