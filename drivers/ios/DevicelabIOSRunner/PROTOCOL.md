@@ -169,8 +169,10 @@ All gestures accept `appBundleId` so the runner can target the right `XCUIApplic
 | `pinch` | `x, y, scale, durationMs` | gesture timings |
 | `pressButton` | `button: "home"|"lock"|"volumeUp"|"volumeDown"|"appSwitcher"` | `{ pressed: true }` |
 | `rotate` | `orientation: "portrait"|"landscapeLeft"|"landscapeRight"|"portraitUpsideDown"` | `{ orientation }` |
+| `appearance` | — | `{ appearance: "dark"|"light" }` |
+| `setAppearance` | `appearance: "dark"|"light"` | `{ appearance }` — the appearance that took effect, re-read after setting, not the request echoed back |
 
-**Delta from agent-device:** swipe + scroll accept coordinate paths AND direction. drag, pinch, pressButton, rotate kept; tapSeries / dragSeries / interactionFrame dropped (LLM-shaped, not needed for flows).
+**Delta from agent-device:** swipe + scroll accept coordinate paths AND direction. drag, pinch, pressButton, rotate kept; tapSeries / dragSeries / interactionFrame dropped (LLM-shaped, not needed for flows). `appearance` / `setAppearance` are local additions wrapping `XCUIDevice.appearance` (iOS 15+); they exist because `simctl ui appearance` covers only simulators, so this is what makes dark mode work on physical devices. `unspecified` is reported as `light` — nothing is being forced, and that is how it renders.
 
 ### Text
 

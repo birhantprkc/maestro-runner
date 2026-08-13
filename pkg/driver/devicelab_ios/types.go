@@ -1,13 +1,18 @@
 // Package devicelab_ios provides the Go client for the devicelab-ios-runner
-// XCUITest-based iOS driver. The runner source lives at
-// /Users/omnarayan/work/support-tools/devicelab-ios-runner and is a verbatim
-// copy of callstackincubator/agent-device's ios-runner (MIT-licensed). This
-// Go package is the translation layer: it converts maestro-runner flow steps
-// into agent-device's wire commands and decodes the responses.
+// XCUITest-based iOS driver. This package is the translation layer: it converts
+// maestro-runner flow steps into the runner's wire commands and decodes the
+// responses.
 //
-// The Swift wire protocol is defined by agent-device's RunnerTests+Models.swift
-// (Command + Response + DataPayload + SnapshotNode). The shapes here mirror
-// that schema 1:1.
+// The runner source that actually ships and gets built lives in this repo at
+// drivers/ios/DevicelabIOSRunner. It began as a copy of
+// callstackincubator/agent-device's ios-runner (MIT-licensed) and has since
+// diverged with local additions — see ATTRIBUTION.md there, and PROTOCOL.md for
+// the command surface. The standalone clone under support-tools is a separate,
+// older checkout; editing it does not change what ships.
+//
+// The Swift wire protocol is defined by RunnerTests+Models.swift (Command +
+// Response + DataPayload + SnapshotNode). The shapes here mirror that schema,
+// so a field added on one side needs adding on the other.
 package devicelab_ios
 
 // CommandType matches agent-device's CommandType enum verbatim. See
@@ -15,7 +20,7 @@ package devicelab_ios
 type CommandType string
 
 const (
-	CmdTap              CommandType = "tap"
+	CmdTap CommandType = "tap"
 	// CmdTapBySelector — local extension. The runner walks its full XCUI
 	// tree, finds the best liberal match (substring + case-insensitive +
 	// prefer-editable-inputs ranking, mirroring Go-side matchesSelector),
@@ -59,6 +64,11 @@ const (
 	// Local extension: runner-side wait-for-idle loop. Eliminates the
 	// HTTP RTT per poll iteration we were paying with idleCheck.
 	CmdAwaitIdle CommandType = "awaitIdle"
+	// Local extension: read / set the device's light-dark appearance
+	// through XCUIDevice. `simctl ui appearance` covers only simulators,
+	// so these are what make dark mode work on physical devices.
+	CmdAppearance    CommandType = "appearance"
+	CmdSetAppearance CommandType = "setAppearance"
 )
 
 // Command is the wire request envelope. Mirrors the Swift Command struct
@@ -101,6 +111,7 @@ type Command struct {
 	Scope           string      `json:"scope,omitempty"`
 	Raw             *bool       `json:"raw,omitempty"`
 	Fullscreen      *bool       `json:"fullscreen,omitempty"`
+	Appearance      string      `json:"appearance,omitempty"` // "dark" or "light" (setAppearance)
 }
 
 // Response is the wire response envelope. The runner returns one of these
@@ -140,6 +151,10 @@ type ResponseData struct {
 	// side can populate lastTappedIdentifier for the next inputText to
 	// hint the type command at which element to focus.
 	Identifier string `json:"identifier,omitempty"`
+	// Appearance — "dark" or "light", from the appearance/setAppearance
+	// commands. setAppearance reports what actually took effect rather
+	// than echoing the request.
+	Appearance string `json:"appearance,omitempty"`
 }
 
 // SnapshotNode mirrors the Swift wire model. Tree is reconstructed by

@@ -53,7 +53,9 @@ func IOSAppearanceValue(enabled bool) string {
 	return "light"
 }
 
-// ParseIOSAppearance reads the output of `simctl ui <udid> appearance`.
+// ParseIOSAppearance reads an iOS appearance name. Both sources spell it the
+// same way: the output of `simctl ui <udid> appearance` on a simulator, and the
+// devicelab runner's appearance command, which works on physical devices too.
 func ParseIOSAppearance(output string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(output)) {
 	case "dark":

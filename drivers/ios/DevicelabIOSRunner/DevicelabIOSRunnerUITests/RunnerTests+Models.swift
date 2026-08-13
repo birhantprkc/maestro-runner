@@ -47,6 +47,16 @@ enum CommandType: String, Codable {
   // device Photos library via PhotoKit. This is the only way to inject media
   // on a real iOS device (no host-side path exists), so it runs on-device.
   case addMedia
+  // Local extension: read the device's light/dark appearance.
+  //
+  // The host used to answer this with `simctl ui appearance`, which exists
+  // only for simulators, so dark mode was unavailable on physical devices.
+  // XCUIDevice exposes the same state to a UI test on both (iOS 15+), so
+  // routing it through the runner covers real hardware too.
+  case appearance
+  // Local extension: set the device's light/dark appearance. Takes
+  // `appearance` as "dark" or "light".
+  case setAppearance
 }
 
 struct Command: Codable {
@@ -86,6 +96,7 @@ struct Command: Codable {
   let mediaName: String?
   let mimeType: String?
   let mediaData: String?  // base64-encoded file bytes (addMedia)
+  let appearance: String?  // "dark" or "light" (setAppearance)
 }
 
 struct Response: Codable {
@@ -131,6 +142,8 @@ struct DataPayload: Codable {
   let pngBase64: String?
   // Local extension: fraction of differing pixels from idleCheck.
   let diffFraction: Double?
+  // Local extension: "dark" or "light" from the appearance command.
+  let appearance: String?
 
   init(
     message: String? = nil,
@@ -154,7 +167,8 @@ struct DataPayload: Codable {
     orientation: String? = nil,
     pngBase64: String? = nil,
     diffFraction: Double? = nil,
-    identifier: String? = nil
+    identifier: String? = nil,
+    appearance: String? = nil
   ) {
     self.message = message
     self.text = text
@@ -178,6 +192,7 @@ struct DataPayload: Codable {
     self.pngBase64 = pngBase64
     self.diffFraction = diffFraction
     self.identifier = identifier
+    self.appearance = appearance
   }
 }
 

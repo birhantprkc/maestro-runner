@@ -1255,24 +1255,33 @@ func bytesEqual(a, b []byte) bool { //nolint:unused
 	return true
 }
 
-var _ = context.Background
-
 // ============================================================================
 // Dark mode (Maestro #2507)
 // ============================================================================
 //
-// Simulator-only, for the same reason as the WDA driver: `simctl ui` has no
-// physical-device counterpart, so a real device gets an explicit error instead
-// of a silent no-op that would let a flow "pass" in the wrong appearance.
+// Driven through the runner's appearance commands, which wrap XCUIDevice's
+// appearance property (iOS 15+). That property is in the physical-device SDK,
+// not just the simulator one, so this works on real hardware — the earlier
+// `simctl ui appearance` implementation was simulator-only and reported that
+// iOS had no way to do it on a device, which was simply wrong.
 
 func (d *Driver) setDarkMode(step *flow.SetDarkModeStep) *core.CommandResult {
-	if err := d.requireSimulatorForAppearance("setDarkMode"); err != nil {
-		return core.ErrorResult(err, err.Error())
-	}
-	out, err := exec.Command("xcrun", "simctl", "ui", d.udid, "appearance",
-		core.IOSAppearanceValue(step.Enabled)).CombinedOutput()
+	ctx, cancel := d.callTimeout()
+	defer cancel()
+	data, err := d.client.Call(ctx, Command{
+		Command:    CmdSetAppearance,
+		Appearance: core.IOSAppearanceValue(step.Enabled),
+	})
 	if err != nil {
-		return core.ErrorResult(err, fmt.Sprintf("Failed to set dark mode: %v: %s", err, strings.TrimSpace(string(out))))
+		return core.ErrorResult(err, fmt.Sprintf("Failed to set dark mode: %v", err))
+	}
+	// The runner reports the appearance that actually took effect. Trust that
+	// over the request: a set that silently did not apply would otherwise let a
+	// flow carry on in the wrong appearance.
+	if got, perr := appearanceToDark(data); perr == nil && got != step.Enabled {
+		err := fmt.Errorf("requested %s mode but the device is in %s mode",
+			core.DarkModeStateName(step.Enabled), core.DarkModeStateName(got))
+		return core.ErrorResult(err, err.Error())
 	}
 	return core.SuccessResult(fmt.Sprintf("Set %s mode", core.DarkModeStateName(step.Enabled)), nil)
 }
@@ -1298,24 +1307,25 @@ func (d *Driver) assertDarkModeIs(want bool) *core.CommandResult {
 }
 
 func (d *Driver) currentDarkMode() (bool, error) {
-	if err := d.requireSimulatorForAppearance("dark mode"); err != nil {
-		return false, err
-	}
-	out, err := exec.Command("xcrun", "simctl", "ui", d.udid, "appearance").CombinedOutput()
+	ctx, cancel := d.callTimeout()
+	defer cancel()
+	data, err := d.client.Call(ctx, Command{Command: CmdAppearance})
 	if err != nil {
-		return false, fmt.Errorf("failed to read appearance: %w: %s", err, strings.TrimSpace(string(out)))
+		return false, fmt.Errorf("failed to read appearance: %w", err)
 	}
-	return core.ParseIOSAppearance(string(out))
+	return appearanceToDark(data)
 }
 
-func (d *Driver) requireSimulatorForAppearance(what string) error {
-	if d.info == nil || !d.info.IsSimulator {
-		return fmt.Errorf("%s is only supported on iOS simulators — iOS exposes no way to set appearance on a physical device", what)
+// appearanceToDark reads the runner's appearance string out of a response.
+//
+// An empty field means the runner predates these commands rather than that the
+// device is light, so it is an error: reporting "light" for a runner that never
+// answered would make assertLightMode pass without evidence.
+func appearanceToDark(data *ResponseData) (bool, error) {
+	if data == nil || data.Appearance == "" {
+		return false, fmt.Errorf("runner returned no appearance — it may predate the appearance command")
 	}
-	if d.udid == "" {
-		return fmt.Errorf("%s requires a simulator UDID", what)
-	}
-	return nil
+	return core.ParseIOSAppearance(data.Appearance)
 }
 
 // textEntryLanded reports whether a `type` command actually reached the target.
@@ -1348,23 +1358,68 @@ func textEntryLanded(before, after, typed string) bool {
 // to re-read, or if the re-read fails, it stays silent rather than inventing a
 // failure — a false failure here would be worse than the silent success it
 // replaces.
+//
+// The re-read polls rather than sampling once because the type command can
+// return before the app has committed the keystrokes: agent-device hit exactly
+// this (#1676), where a one-shot read on a loaded CI simulator saw a partial
+// value and, on their harness, failed 3 of 5 runs on a branch carrying no
+// behaviour change. A partial value is already enough for textEntryLanded — any
+// movement counts — so the window this closes is the narrower one where the
+// field has not yet taken a single character. Polling costs nothing when the
+// text is there on the first read, which is the normal case; only a genuine
+// misdirection waits out the ceiling, and that flow is about to fail anyway.
 func (d *Driver) verifyTextEntry(identifier, before, typed string) error {
 	if identifier == "" {
 		return nil
 	}
-	node, err := d.findElement(flow.Selector{ID: identifier}, true, shortVerifyTimeoutMs)
-	if err != nil || node == nil {
-		return nil
-	}
-	if textEntryLanded(before, node.Value, typed) {
-		return nil
-	}
-	return fmt.Errorf(
-		"inputText reported success but %q is unchanged (still %q) — the text was typed somewhere else; "+
-			"check that the preceding tap focused this field",
-		identifier, node.Value)
+	return awaitTextEntry(identifier, before, typed, textEntrySettleTimeout, textEntryPollInterval,
+		func() (string, bool) {
+			node, err := d.findElement(flow.Selector{ID: identifier}, true, shortVerifyTimeoutMs)
+			if err != nil || node == nil {
+				return "", false
+			}
+			return node.Value, true
+		})
 }
 
-// shortVerifyTimeoutMs bounds the post-type re-read. The element was on screen
-// a moment ago, so this is a single snapshot, not a wait.
-const shortVerifyTimeoutMs = 1000
+// awaitTextEntry polls read until the field shows some sign of the typed text,
+// and reports the misdirection only once the timeout passes with nothing having
+// landed.
+//
+// read returns the field's current value, and false when it could not be read
+// at all — that case ends verification silently, since an unreadable field is
+// not evidence that the text went elsewhere.
+func awaitTextEntry(identifier, before, typed string, timeout, interval time.Duration, read func() (string, bool)) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		value, ok := read()
+		if !ok {
+			return nil
+		}
+		if textEntryLanded(before, value, typed) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf(
+				"inputText reported success but %q is unchanged (still %q) after %s — the text was typed "+
+					"somewhere else; check that the preceding tap focused this field",
+				identifier, value, timeout)
+		}
+		time.Sleep(interval)
+	}
+}
+
+const (
+	// shortVerifyTimeoutMs bounds each post-type re-read. The element was on
+	// screen a moment ago, so this is a single snapshot, not a wait.
+	shortVerifyTimeoutMs = 1000
+
+	// textEntrySettleTimeout is how long a field is given to show any sign of
+	// the typed text before the entry is called misdirected.
+	textEntrySettleTimeout = 3 * time.Second
+
+	// textEntryPollInterval spaces the re-reads. Each one is a snapshot fetch,
+	// so this trades a little latency on the failure path for not hammering the
+	// runner while the app commits keystrokes.
+	textEntryPollInterval = 150 * time.Millisecond
+)

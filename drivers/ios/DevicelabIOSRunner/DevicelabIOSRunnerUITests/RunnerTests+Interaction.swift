@@ -171,6 +171,34 @@ extension RunnerTests {
 #endif
   }
 
+  // Maps XCUIDevice's appearance enum onto the wire strings the host uses.
+  //
+  // `unspecified` means no style is being forced rather than "dark", and it
+  // renders light, so it reports as light. That matches the reading the Android
+  // side gives for the auto/custom night-mode schedules: the only honest answer
+  // from the current state alone is "not currently dark".
+  func appearanceName(_ appearance: XCUIDevice.Appearance) -> String {
+    switch appearance {
+    case .dark:
+      return "dark"
+    default:
+      return "light"
+    }
+  }
+
+  // Returns nil for anything that is not a recognised appearance, so an
+  // unsupported value fails loudly instead of silently landing on a default.
+  func appearanceValue(_ name: String) -> XCUIDevice.Appearance? {
+    switch name.lowercased() {
+    case "dark":
+      return .dark
+    case "light":
+      return .light
+    default:
+      return nil
+    }
+  }
+
   func findElement(app: XCUIApplication, text: String) -> XCUIElement? {
     let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR identifier CONTAINS[c] %@ OR value CONTAINS[c] %@", text, text, text)
     let element = app.descendants(matching: .any).matching(predicate).firstMatch

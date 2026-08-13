@@ -826,6 +826,31 @@ extension RunnerTests {
         ok: false,
         error: ErrorPayload(message: "unsupported rotate orientation: \(orientation)")
       )
+    case .appearance:
+      return Response(
+        ok: true,
+        data: DataPayload(message: "appearance", appearance: appearanceName(XCUIDevice.shared.appearance))
+      )
+    case .setAppearance:
+      guard let wanted = command.appearance?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !wanted.isEmpty
+      else {
+        return Response(ok: false, error: ErrorPayload(message: "setAppearance requires appearance"))
+      }
+      guard let style = appearanceValue(wanted) else {
+        return Response(
+          ok: false,
+          error: ErrorPayload(message: "unsupported appearance: \(wanted)")
+        )
+      }
+      XCUIDevice.shared.appearance = style
+      // Read back rather than echoing the request: the setter is a request to
+      // the system, and reporting what actually took effect is what makes the
+      // host's assertDarkMode meaningful.
+      return Response(
+        ok: true,
+        data: DataPayload(message: "setAppearance", appearance: appearanceName(XCUIDevice.shared.appearance))
+      )
     case .appSwitcher:
       performAppSwitcherGesture(app: activeApp)
       return Response(ok: true, data: DataPayload(message: "appSwitcher"))
