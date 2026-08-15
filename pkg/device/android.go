@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/devicelab-dev/maestro-runner/pkg/core"
 )
 
 // AndroidDevice manages an Android device connection via ADB.
@@ -242,26 +244,46 @@ func (d *AndroidDevice) Push(localPath, remotePath string) error {
 // GetAppVersion returns the version name of an installed app.
 // Returns empty string if app is not installed or version cannot be determined.
 func (d *AndroidDevice) GetAppVersion(packageName string) string {
+	version, _ := d.GetAppVersionAndBuild(packageName)
+	return version
+}
+
+// GetAppVersionAndBuild returns an installed app's version name and version
+// code — what a user calls the version and the build number.
+//
+// One release version covers many CI builds, so the version name alone does not
+// identify which binary a run used. Both come out of the same dumpsys output,
+// so reading them together costs one shell call rather than two.
+//
+// Either value is empty when the app is not installed or it cannot be parsed.
+func (d *AndroidDevice) GetAppVersionAndBuild(packageName string) (version, build string) {
 	if packageName == "" {
-		return ""
+		return "", ""
 	}
 
-	out, err := d.Shell(fmt.Sprintf("dumpsys package %s | grep versionName", packageName))
+	// Matching on "version" alone keeps this to a single grep with nothing to
+	// quote, and the parsing below only accepts the two keys that matter.
+	out, err := d.Shell(fmt.Sprintf("dumpsys package %s | grep version", core.ShellQuote(packageName)))
 	if err != nil {
-		return ""
+		return "", ""
 	}
 
-	// Parse output: "    versionName=2.2.0"
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
+	// Parse output lines: "    versionName=2.2.0" and
+	// "    versionCode=10009107 minSdk=24 targetSdk=34" — the version code
+	// shares its line with other fields, so it stops at the first space.
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "versionName=") {
-			version := strings.TrimPrefix(line, "versionName=")
-			return strings.TrimSpace(version)
+		switch {
+		case version == "" && strings.HasPrefix(line, "versionName="):
+			version = strings.TrimSpace(strings.TrimPrefix(line, "versionName="))
+		case build == "" && strings.HasPrefix(line, "versionCode="):
+			if fields := strings.Fields(strings.TrimPrefix(line, "versionCode=")); len(fields) > 0 {
+				build = fields[0]
+			}
 		}
 	}
 
-	return ""
+	return version, build
 }
 
 // IsInstalled checks if a package is installed.

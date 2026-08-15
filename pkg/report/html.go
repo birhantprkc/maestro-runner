@@ -58,15 +58,18 @@ func GenerateHTML(reportDir string, cfg HTMLConfig) error {
 
 // HTMLData contains all data needed for the HTML template.
 type HTMLData struct {
-	Title         string
-	GeneratedAt   string
-	Index         *Index
-	Flows         []FlowHTMLData
-	TotalDuration string
-	PassRate      float64
-	MaxDuration   int64
-	StatusClass   map[Status]string
-	JSONData      template.JS // JSON data for JavaScript
+	Title       string
+	GeneratedAt string
+	// AppVersionLabel is the app version and build number, ready to display.
+	// Computed once so the page title and the header agree.
+	AppVersionLabel string
+	Index           *Index
+	Flows           []FlowHTMLData
+	TotalDuration   string
+	PassRate        float64
+	MaxDuration     int64
+	StatusClass     map[Status]string
+	JSONData        template.JS // JSON data for JavaScript
 }
 
 // FlowHTMLData contains flow data formatted for HTML.
@@ -175,15 +178,16 @@ func buildHTMLData(index *Index, flows []FlowDetail, cfg HTMLConfig) HTMLData {
 	})
 
 	return HTMLData{
-		Title:         cfg.Title,
-		GeneratedAt:   time.Now().Format("2006-01-02 15:04:05"),
-		Index:         index,
-		Flows:         flowsData,
-		TotalDuration: formatDuration(&totalDurationMs),
-		PassRate:      passRate,
-		MaxDuration:   maxDuration,
-		StatusClass:   statusClass,
-		JSONData:      template.JS(jsonBytes),
+		Title:           cfg.Title,
+		GeneratedAt:     time.Now().Format("2006-01-02 15:04:05"),
+		AppVersionLabel: index.App.VersionLabel(),
+		Index:           index,
+		Flows:           flowsData,
+		TotalDuration:   formatDuration(&totalDurationMs),
+		PassRate:        passRate,
+		MaxDuration:     maxDuration,
+		StatusClass:     statusClass,
+		JSONData:        template.JS(jsonBytes),
 	}
 }
 
@@ -237,7 +241,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
+    <title>{{.Title}}{{if .AppVersionLabel}} — {{.AppVersionLabel}}{{end}}</title>
     <style>
         :root {
             --bg-primary: #ffffff;
@@ -1097,7 +1101,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 <div class="header-divider"></div>
                 <div class="header-title">
                     <span class="header-title-main">{{.Title}}</span>
-                    <span class="header-title-sub">{{.GeneratedAt}}</span>
+                    <span class="header-title-sub">{{if .AppVersionLabel}}{{.AppVersionLabel}} &middot; {{end}}{{.GeneratedAt}}</span>
                 </div>
             </div>
             <div class="header-right">
@@ -1152,7 +1156,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 </div>
                 <div class="env-item">
                     <span class="env-label">App</span>
-                    <span class="env-value">{{if .Index.App.ID}}{{.Index.App.ID}}{{if .Index.App.Version}} v{{.Index.App.Version}}{{end}}{{else}}-{{end}}</span>
+                    <span class="env-value">{{if .Index.App.ID}}{{.Index.App.ID}}{{with .Index.App.VersionLabel}} {{.}}{{end}}{{else}}-{{end}}</span>
                 </div>
                 <div class="env-item">
                     <span class="env-label">Driver</span>

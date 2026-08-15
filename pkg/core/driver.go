@@ -179,7 +179,11 @@ type PlatformInfo struct {
 	ScreenWidth  int    `json:"screenWidth,omitempty"`  // Screen width in pixels
 	ScreenHeight int    `json:"screenHeight,omitempty"` // Screen height in pixels
 	AppID        string `json:"appId,omitempty"`        // Bundle ID / Package name
-	AppVersion   string `json:"appVersion,omitempty"`   // App version
+	AppVersion   string `json:"appVersion,omitempty"`   // App version name, e.g. "1.16.0"
+	// AppBuild is the build number behind the version name — Android's
+	// versionCode, iOS's CFBundleVersion. One release version covers many CI
+	// builds, so the version alone does not identify which binary was tested.
+	AppBuild string `json:"appBuild,omitempty"`
 }
 
 // ExecutedBy indicates what component executed a step

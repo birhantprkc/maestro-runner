@@ -245,10 +245,10 @@ func createUIAutomator2Driver(cfg *RunConfig, dev *device.AndroidDevice, info de
 		fmt.Printf("  %s⚠%s Warning: failed to set implicit wait: %v\n", color(colorYellow), color(colorReset), err)
 	}
 
-	// 5. Query app version from device if appId is known
-	appVersion := ""
+	// 5. Query app version and build number from device if appId is known
+	appVersion, appBuild := "", ""
 	if cfg.AppID != "" {
-		appVersion = dev.GetAppVersion(cfg.AppID)
+		appVersion, appBuild = dev.GetAppVersionAndBuild(cfg.AppID)
 	}
 
 	// 6. Get screen size
@@ -287,6 +287,7 @@ func createUIAutomator2Driver(cfg *RunConfig, dev *device.AndroidDevice, info de
 		ScreenHeight: screenH,
 		AppID:        cfg.AppID,
 		AppVersion:   appVersion,
+		AppBuild:     appBuild,
 	}
 	driver := uia2driver.New(client, platformInfo, dev)
 
@@ -443,10 +444,10 @@ func createDeviceLabDriver(cfg *RunConfig, dev *device.AndroidDevice, info devic
 		fmt.Printf("  %s⚠%s Warning: failed to set implicit wait: %v\n", color(colorYellow), color(colorReset), err)
 	}
 
-	// 5. Query app version
-	appVersion := ""
+	// 5. Query app version and build number
+	appVersion, appBuild := "", ""
 	if cfg.AppID != "" {
-		appVersion = dev.GetAppVersion(cfg.AppID)
+		appVersion, appBuild = dev.GetAppVersionAndBuild(cfg.AppID)
 	}
 
 	// 6. Get screen size from session device info
@@ -484,6 +485,7 @@ func createDeviceLabDriver(cfg *RunConfig, dev *device.AndroidDevice, info devic
 		ScreenHeight: screenH,
 		AppID:        cfg.AppID,
 		AppVersion:   appVersion,
+		AppBuild:     appBuild,
 	}
 	driver := devicelabdriver.New(adapter, platformInfo, dev)
 

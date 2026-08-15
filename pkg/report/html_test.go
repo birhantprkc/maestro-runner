@@ -140,7 +140,9 @@ func TestGenerateHTML(t *testing.T) {
 	// Check for essential elements
 	checks := []string{
 		"<!DOCTYPE html>",
-		"<title>Test Report</title>",
+		// The title carries the app version so browser tabs of different runs
+		// are distinguishable (#144).
+		"<title>Test Report — v1.0.0</title>",
 		"Login Test",
 		"launchApp",
 		"tapOn",
@@ -788,5 +790,76 @@ func TestLoadAsBase64(t *testing.T) {
 	result = loadAsBase64(jpgPath)
 	if !strings.HasPrefix(result, "data:image/jpeg;base64,") {
 		t.Error("expected base64 JPEG")
+	}
+}
+
+// TestGenerateHTMLShowsAppBuildNumber covers #144 end to end: one release
+// version has many CI builds, so the build number has to survive into the
+// rendered page — in the title, the header, and the App line — or a report
+// opened later cannot say which binary it exercised.
+func TestGenerateHTMLShowsAppBuildNumber(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "flows"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	now := time.Now()
+	index := &Index{
+		Version:     Version,
+		Status:      StatusPassed,
+		StartTime:   now,
+		LastUpdated: now,
+		Device:      Device{ID: "emulator-5554", Name: "Pixel 6", Platform: "android", OSVersion: "14"},
+		App: App{
+			ID:      "com.example.app",
+			Version: "1.16.0",
+			Build:   "10009107",
+		},
+		MaestroRunner: RunnerInfo{Version: "1.1.24", Driver: "uiautomator2"},
+		Summary:       Summary{Total: 1, Passed: 1},
+		Flows: []FlowEntry{{
+			Index: 0, ID: "flow-000", Name: "Smoke", SourceFile: "smoke.yaml",
+			DataFile: "flows/flow-000.json", Status: StatusPassed,
+		}},
+	}
+	flowDetail := &FlowDetail{
+		ID: "flow-000", Name: "Smoke", SourceFile: "smoke.yaml", StartTime: now,
+		Commands: []Command{{ID: "cmd-0", Index: 0, Type: "launchApp", Status: StatusPassed}},
+	}
+
+	if err := atomicWriteJSON(filepath.Join(tmpDir, "report.json"), index); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := atomicWriteJSON(filepath.Join(tmpDir, "flows", "flow-000.json"), flowDetail); err != nil {
+		t.Fatalf("write flow: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "report.html")
+	if err := GenerateHTML(tmpDir, HTMLConfig{OutputPath: outputPath, Title: "Test Report"}); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read html: %v", err)
+	}
+	html := string(content)
+
+	for _, want := range []string{
+		"<title>Test Report — v1.16.0 (10009107)</title>",
+		// Header subtitle, where the run identifies itself on screen.
+		"v1.16.0 (10009107)",
+		// App line keeps the bundle id alongside it.
+		"com.example.app",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML missing expected content: %s", want)
+		}
+	}
+
+	// The build number must appear more than once — losing it from either the
+	// title or the body would still leave a partial match above.
+	if got := strings.Count(html, "10009107"); got < 2 {
+		t.Errorf("expected the build number in both title and body, found %d occurrences", got)
 	}
 }

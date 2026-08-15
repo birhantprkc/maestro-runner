@@ -9,7 +9,10 @@
 // Consumers poll report.json and only fetch changed flow details as needed.
 package report
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Version is the report schema version.
 const Version = "1.0.0"
@@ -67,7 +70,32 @@ type Device struct {
 type App struct {
 	ID      string `json:"id"` // Bundle ID or package name
 	Name    string `json:"name,omitempty"`
-	Version string `json:"version,omitempty"`
+	Version string `json:"version,omitempty"` // Version name, e.g. "1.16.0"
+	// Build is the build number behind the version name — Android's
+	// versionCode, iOS's CFBundleVersion. Reports outlive the run that produced
+	// them, and a shared report site holds many runs of the same version, so
+	// the build number is what identifies which binary was actually tested.
+	Build string `json:"build,omitempty"`
+}
+
+// VersionLabel renders the app version for display, including the build number
+// when it is known: "v1.16.0 (10009107)".
+//
+// The build number alone is still worth showing — an app can ship without a
+// marketing version, and "which build" is the question the label exists to
+// answer — so that case reads "build 10009107" rather than a bare parenthetical.
+// Empty when neither is known, so callers can omit the field entirely.
+func (a App) VersionLabel() string {
+	switch {
+	case a.Version != "" && a.Build != "":
+		return fmt.Sprintf("v%s (%s)", a.Version, a.Build)
+	case a.Version != "":
+		return "v" + a.Version
+	case a.Build != "":
+		return "build " + a.Build
+	default:
+		return ""
+	}
 }
 
 // CI contains CI/CD build information.

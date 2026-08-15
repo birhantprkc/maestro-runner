@@ -228,6 +228,7 @@ func buildAppReport(driver core.Driver) report.App {
 	return report.App{
 		ID:      pi.AppID,
 		Version: pi.AppVersion,
+		Build:   pi.AppBuild,
 	}
 }
 
