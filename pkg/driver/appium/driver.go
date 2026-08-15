@@ -28,6 +28,8 @@ type Driver struct {
 	waitForIdleTimeoutSet     bool                   // whether waitForIdleTimeout has been set
 	lastTappedElementID       string                 // iOS: last element clicked via ClickElement, used by inputText
 	warnedFields              map[string]bool
+	appVersion                string // version name, supplied by the caller
+	appBuild                  string // build number, supplied by the caller
 }
 
 // NewDriver creates a new Appium driver.
@@ -242,7 +244,20 @@ func (d *Driver) GetPlatformInfo() *core.PlatformInfo {
 		ScreenWidth:  w,
 		ScreenHeight: h,
 		AppID:        d.appID,
+		AppVersion:   d.appVersion,
+		AppBuild:     d.appBuild,
 	}
+}
+
+// SetAppInfo records the app's version name and build number for reports.
+//
+// Appium session capabilities do not carry either one, and this driver has no
+// device access of its own to look them up — on a cloud device farm there is no
+// local app bundle and no adb/simctl to ask. So the caller resolves them when it
+// can and supplies them here, leaving them empty when it cannot.
+func (d *Driver) SetAppInfo(version, build string) {
+	d.appVersion = version
+	d.appBuild = build
 }
 
 // SetContext sets the parent context for element-finding operations.

@@ -108,6 +108,17 @@ func createDevicelabIOSDriver(cfg *RunConfig) (core.Driver, func(), error) {
 		}
 	}
 
+	// Read the app's version and build number the same way the wda path does.
+	// cfg.AppID can still be an unexpanded ${APP_ID} template here, in which
+	// case the lookup simply finds nothing and the report says so.
+	appVersion, appBuild := "", ""
+	if cfg.AppID != "" {
+		appVersion, appBuild = getIOSAppVersionAndBuild(udid, cfg.AppID)
+	}
+	if appVersion == "" && appBuild == "" && cfg.AppFile != "" {
+		appVersion, appBuild = readBundleVersionAndBuild(cfg.AppFile)
+	}
+
 	platformInfo := &core.PlatformInfo{
 		Platform:     "ios",
 		OSVersion:    deviceInfo.OSVersion,
@@ -117,6 +128,8 @@ func createDevicelabIOSDriver(cfg *RunConfig) (core.Driver, func(), error) {
 		ScreenWidth:  screenW,
 		ScreenHeight: screenH,
 		AppID:        cfg.AppID,
+		AppVersion:   appVersion,
+		AppBuild:     appBuild,
 	}
 
 	drv := dliosdriver.NewDriver(client, platformInfo, udid, runner)

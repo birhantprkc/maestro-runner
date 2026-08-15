@@ -1156,7 +1156,7 @@ const htmlTemplate = `<!DOCTYPE html>
                 </div>
                 <div class="env-item">
                     <span class="env-label">App</span>
-                    <span class="env-value">{{if .Index.App.ID}}{{.Index.App.ID}}{{with .Index.App.VersionLabel}} {{.}}{{end}}{{else}}-{{end}}</span>
+                    <span class="env-value">{{if .Index.App.ID}}{{.Index.App.ID}}{{with .Index.App.VersionLabel}} {{.}}{{end}}{{else}}{{with .Index.App.VersionLabel}}{{.}}{{else}}-{{end}}{{end}}</span>
                 </div>
                 <div class="env-item">
                     <span class="env-label">Driver</span>

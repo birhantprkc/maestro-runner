@@ -863,3 +863,57 @@ func TestGenerateHTMLShowsAppBuildNumber(t *testing.T) {
 		t.Errorf("expected the build number in both title and body, found %d occurrences", got)
 	}
 }
+
+// TestGenerateHTMLShowsVersionWithoutAppID covers the Appium case, where the
+// session capabilities may not name the app: the App line used to fall back to
+// a bare dash and throw the version away with it, even though the version was
+// known and shown in the title.
+func TestGenerateHTMLShowsVersionWithoutAppID(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "flows"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	now := time.Now()
+	index := &Index{
+		Version:       Version,
+		Status:        StatusPassed,
+		StartTime:     now,
+		LastUpdated:   now,
+		Device:        Device{ID: "sim-1", Name: "iPhone 16 Pro", Platform: "ios", OSVersion: "18.6"},
+		App:           App{Version: "1.16.0", Build: "10009107"}, // no ID
+		MaestroRunner: RunnerInfo{Version: "1.1.24", Driver: "appium"},
+		Summary:       Summary{Total: 1, Passed: 1},
+		Flows: []FlowEntry{{
+			Index: 0, ID: "flow-000", Name: "Smoke", SourceFile: "smoke.yaml",
+			DataFile: "flows/flow-000.json", Status: StatusPassed,
+		}},
+	}
+	flowDetail := &FlowDetail{
+		ID: "flow-000", Name: "Smoke", SourceFile: "smoke.yaml", StartTime: now,
+		Commands: []Command{{ID: "cmd-0", Index: 0, Type: "launchApp", Status: StatusPassed}},
+	}
+	if err := atomicWriteJSON(filepath.Join(tmpDir, "report.json"), index); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := atomicWriteJSON(filepath.Join(tmpDir, "flows", "flow-000.json"), flowDetail); err != nil {
+		t.Fatalf("write flow: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "report.html")
+	if err := GenerateHTML(tmpDir, HTMLConfig{OutputPath: outputPath, Title: "Test Report"}); err != nil {
+		t.Fatalf("GenerateHTML: %v", err)
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read html: %v", err)
+	}
+	html := string(content)
+
+	if !strings.Contains(html, `<span class="env-value">v1.16.0 (10009107)</span>`) {
+		t.Error("expected the App line to show the version when no app id is known")
+	}
+	if strings.Contains(html, `<span class="env-value">-</span>`) {
+		t.Error("App line fell back to a dash despite a known version")
+	}
+}

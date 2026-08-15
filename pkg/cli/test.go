@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -1942,6 +1943,7 @@ func createAppiumDriver(cfg *RunConfig) (core.Driver, func(), error) {
 	}
 	info := driver.GetPlatformInfo()
 	logger.Info("Appium session created successfully: %s", info.DeviceID)
+	driver.SetAppInfo(resolveAppiumAppVersion(cfg, info))
 
 	// Build the provider chain: detected cloud provider (if any) + the session
 	// exporter (if --appium-session-file is set). Composite runs them all, so a
@@ -2622,4 +2624,72 @@ func createParallelRunner(cfg *RunConfig, workers []executor.DeviceWorker, platf
 	}
 
 	return executor.NewParallelRunner(workers, runnerConfig)
+}
+
+// resolveAppiumAppVersion looks up the app's version name and build number for
+// an Appium run.
+//
+// Appium session capabilities carry neither, so they have to come from the
+// device or the app bundle. That is reachable only when the Appium server is
+// local: a cloud device farm exposes no adb or simctl, and the app there is a
+// provider-side upload rather than a path on this machine. Cloud runs therefore
+// report no version, which is honest — better than a number guessed from
+// whatever happens to be installed on the machine running the tests.
+//
+// Everything here is best-effort; a lookup that fails leaves the field empty
+// rather than failing the run.
+func resolveAppiumAppVersion(cfg *RunConfig, info *core.PlatformInfo) (version, build string) {
+	// The test is whether the Appium server is local, not whether a cloud
+	// provider was detected: provider detection answers "who should be told
+	// the result", which is a different question and is true for the local
+	// debug provider too. A local server means adb and simctl on this machine
+	// talk to the same device. It is not a perfect proxy — a local server can
+	// drive a remote device — but in that case the lookup simply finds nothing.
+	if !isLocalAppiumURL(cfg.AppiumURL) {
+		return "", ""
+	}
+
+	appID := cfg.AppID
+	if appID == "" {
+		appID = info.AppID
+	}
+
+	switch strings.ToLower(info.Platform) {
+	case "android":
+		if appID != "" {
+			if dev, err := device.New(info.DeviceID); err == nil {
+				version, build = dev.GetAppVersionAndBuild(appID)
+			}
+		}
+	case "ios":
+		if appID != "" && info.DeviceID != "" {
+			version, build = getIOSAppVersionAndBuild(info.DeviceID, appID)
+		}
+		// A physical device, or a simulator where the app is not installed
+		// yet, leaves nothing to read — fall back to the bundle under test.
+		// iOS only: the equivalent for an APK would need the Android SDK's
+		// aapt, which is not a dependency here.
+		if version == "" && build == "" && cfg.AppFile != "" {
+			version, build = readBundleVersionAndBuild(cfg.AppFile)
+		}
+	}
+	return version, build
+}
+
+// isLocalAppiumURL reports whether an Appium server address is on this machine.
+// An empty URL counts as local, since that is the default localhost server.
+func isLocalAppiumURL(appiumURL string) bool {
+	trimmed := strings.TrimSpace(appiumURL)
+	if trimmed == "" {
+		return true
+	}
+	host := strings.ToLower(trimmed)
+	if u, err := url.Parse(trimmed); err == nil && u.Hostname() != "" {
+		host = strings.ToLower(u.Hostname())
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0":
+		return true
+	}
+	return false
 }
