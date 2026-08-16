@@ -1719,7 +1719,7 @@ func (d *Driver) startRecording(step *flow.StartRecordingStep) *core.CommandResu
 	}
 
 	// Start screenrecord in background (will be killed by stopRecording)
-	cmd := fmt.Sprintf("screenrecord %s &", path)
+	cmd := fmt.Sprintf("screenrecord %s </dev/null >/dev/null 2>&1 &", path)
 	if _, err := d.device.Shell(cmd); err != nil {
 		return errorResult(err, fmt.Sprintf("Failed to start recording: %v", err))
 	}

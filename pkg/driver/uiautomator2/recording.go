@@ -25,7 +25,9 @@ func (d *Driver) StartScreenRecording() error {
 	_, _ = d.device.Shell("pkill -INT screenrecord")
 	_, _ = d.device.Shell("rm -f " + recordingDevicePath)
 
-	if _, err := d.device.Shell(fmt.Sprintf("screenrecord %s &", recordingDevicePath)); err != nil {
+	// The stdio redirects are load-bearing: a backgrounded child that inherits
+	// the adb shell's stdout either holds the session open or dies with it.
+	if _, err := d.device.Shell(fmt.Sprintf("screenrecord %s </dev/null >/dev/null 2>&1 &", recordingDevicePath)); err != nil {
 		return fmt.Errorf("start screenrecord: %w", err)
 	}
 	// screenrecord exits straight away on an unwritable path or unsupported
