@@ -108,6 +108,10 @@ Examples:
 			Name:  "flatten",
 			Usage: "Don't create timestamp subfolder (requires --output)",
 		},
+		&cli.BoolFlag{
+			Name:  "retry-failed",
+			Usage: "Run only the flows that failed in the previous run (looks for the last report under the same --output directory)",
+		},
 
 		// Parallelization
 		&cli.IntFlag{
@@ -476,6 +480,10 @@ type RunConfig struct {
 
 	// Output
 	OutputDir string // Final resolved output directory
+	// ReportBaseDir is the root the runner writes runs under (--output, or
+	// ./reports) — where --retry-failed looks for the previous run's report.
+	ReportBaseDir string
+	RetryFailed   bool // Narrow the selection to flows that failed in the previous run
 
 	// Parallelization
 	Parallel int // Number of devices to use (0 = single device mode)
@@ -632,6 +640,14 @@ func runTest(c *cli.Context) error {
 		return err
 	}
 
+	// The base directory (before any timestamp subfolder) is where
+	// --retry-failed looks for the previous run's report.
+	reportBaseDir := getString("output")
+	if reportBaseDir == "" {
+		reportBaseDir = "./reports"
+	}
+	reportBaseDir = filepath.Clean(reportBaseDir)
+
 	// Load Appium capabilities if provided
 	capsFile := getString("caps")
 	var caps map[string]interface{}
@@ -694,6 +710,8 @@ func runTest(c *cli.Context) error {
 		IncludeTags:        getStringSlice("include-tags"),
 		ExcludeTags:        getStringSlice("exclude-tags"),
 		OutputDir:          outputDir,
+		ReportBaseDir:      reportBaseDir,
+		RetryFailed:        getBool("retry-failed"),
 		Parallel:           getInt("parallel"),
 		Continuous:         getBool("continuous"),
 		Headed:             getBool("headed"),
@@ -843,6 +861,24 @@ func executeTest(cfg *RunConfig) error {
 		return err
 	}
 	logger.Info("Validated %d flow(s)", len(flows))
+
+	// 3.1. --retry-failed: narrow the selection to the previous run's failures.
+	// An empty result means the previous run was clean — that is the success the
+	// flag exists to confirm, so exit 0 without touching a device.
+	if cfg.RetryFailed {
+		flows, err = narrowToPreviousFailures(cfg.ReportBaseDir, flows)
+		if err != nil {
+			logger.Error("--retry-failed: %v", err)
+			return err
+		}
+		if len(flows) == 0 {
+			logger.Info("Previous run had no failures — nothing to retry")
+			printSetupSuccess("Previous run had no failures — nothing to retry")
+			return nil
+		}
+		logger.Info("Retrying %d previously failed flow(s)", len(flows))
+		printSetupSuccess(fmt.Sprintf("Retrying %d previously failed flow(s)", len(flows)))
+	}
 
 	// Warn about unsupported selector fields for the target platform
 	if cfg.Platform != "" {
@@ -1884,6 +1920,12 @@ func printSetupStep(msg string) {
 // printSetupSuccess prints a success message for setup
 func printSetupSuccess(msg string) {
 	fmt.Printf("  %s✓%s %s\n", color(colorGreen), color(colorReset), msg)
+}
+
+// printSetupWarning prints a setup note that is worth seeing but is not a
+// failure — something the run continued past, with a smaller scope than asked.
+func printSetupWarning(msg string) {
+	fmt.Printf("  %s⚠%s %s\n", color(colorYellow), color(colorReset), msg)
 }
 
 // createAppiumDriver creates a driver that connects to an external Appium server.
