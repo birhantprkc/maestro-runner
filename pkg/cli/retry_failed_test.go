@@ -146,7 +146,7 @@ func TestSelectFailedFlows_MatchesAcrossPathSpellings(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(origWD)
+	defer func() { _ = os.Chdir(origWD) }()
 
 	selected, missing := selectFailedFlows([]string{"a.yaml", "b.yaml"}, []string{a})
 	if len(selected) != 1 || selected[0] != "a.yaml" {

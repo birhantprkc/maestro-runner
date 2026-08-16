@@ -533,12 +533,6 @@ func extractIOSVersion(runtime string) string {
 	return runtime
 }
 
-// getIOSAppVersion queries the iOS simulator for an app's version.
-func getIOSAppVersion(udid, bundleID string) string {
-	version, _ := getIOSAppVersionAndBuild(udid, bundleID)
-	return version
-}
-
 // getIOSAppVersionAndBuild reads an installed simulator app's marketing version
 // and build number — CFBundleShortVersionString and CFBundleVersion.
 //
