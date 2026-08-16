@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.24] - 2026-08-16
+
+This release is about **the loop after a failed run**: re-run only what failed with `--retry-failed`, watch what happened with `--record`, and assert list contents exactly with `assertVisible: count:`. Dark mode now works everywhere — web pages and physical iOS devices included — and reports identify the exact CI build they ran against.
+
+### Added
+- **`--retry-failed`** — re-run only the flows that failed in the previous run. Reads the last report under the same `--output` directory (flattened or timestamped layout); a run cut short counts its unfinished flows as failed, so nothing is silently dropped. A clean previous run exits 0 without touching a device; if none of the previous failures are in the current selection, the run errors instead of silently running nothing.
+  ```bash
+  maestro-runner test --output ./reports flows/                 # 2 of 40 fail
+  maestro-runner test --output ./reports --retry-failed flows/  # runs just those 2
+  ```
+- **`--record`** — save a screen recording of every flow into its report assets, played inline in the HTML report. Android devices/emulators record on-device via `screenrecord` (3-minute clip cap per flow) and the file is pulled to the host; iOS simulators record host-side via `simctl`. Unsupported platforms (physical iOS, web, Appium) warn once and run without recording.
+- **`assertVisible` with `count:`** — assert that a selector matches exactly N visible elements; fewer or more both fail, and the error reports the count actually observed. Counts through the same multi-match machinery `index:` selection uses on every driver, so count semantics never diverge from single-element matching. Supports `${VAR}`; rejects `0` (use `assertNotVisible`) and combining with `index:`.
+  ```yaml
+  - assertVisible:
+      css: .cart-item
+      count: 3
+  ```
+- **Dark mode on web** — `setDarkMode`/`toggleDarkMode`/`assertDarkMode`/`assertLightMode` now work on the browser driver by emulating `prefers-color-scheme` over CDP. Heads-up: headless Chromium defaults to dark, so set an explicit mode before asserting.
+- **Dark mode on physical iOS devices** — `--driver devicelab_ios` now sets appearance through `XCUIDevice.appearance` (iOS 15+), which works on real hardware, replacing the simulator-only `simctl` path. The set is read back and the step fails if it didn't take effect.
+- **App build number in reports** — reports now show the build behind the version (Android `versionCode`, iOS `CFBundleVersion`): `v1.16.0 (10009107)` in `report.json`, the HTML header and title, and Allure's environment. The devicelab_ios and local-Appium paths report the app version too, where they previously reported none ([#144](https://github.com/devicelab-dev/maestro-runner/issues/144)).
+
+### Fixed
+- **Flow text reaching the device shell is now shell-quoted** — an apostrophe in a URL (`openBrowser: "https://example.com/s?q=it's"`) was a device-side shell parse error, and `addMedia` paths carried no quoting at all, so a filename with a space silently registered nothing. Applied at all six sites across the Android drivers (`openBrowser`, `openLink`, `launchApp` arguments, `addMedia`).
+- **WDA `inputText` rejected React Native fields that are accessibility-merged** — the 1.1.23 focus gate required an active element, but iOS collapses a `TextInput` inside an accessible container and publishes only the parent, so nothing reports keyboard focus even though typing works. The gate now also accepts a visible keyboard as evidence (iOS doesn't raise it unless something holds first responder), a failed element send-keys falls through to tap-and-type, and the failure message now says exactly what was observed ([#143](https://github.com/devicelab-dev/maestro-runner/issues/143)).
+- **iOS text-entry verification now polls for the keystrokes to commit** — the type command can return before the app has applied the keys, so the 1.1.23 one-shot re-read could land on a field that had taken nothing yet and report misdirection that never happened.
+- **`startRecording` never survived on real Android devices** — a backgrounded `screenrecord` inheriting the adb shell's stdio dies with the session, so recordings silently skipped. Both the new `--record` flag and the standalone `startRecording` step now detach correctly and verify the recorder is actually running.
+- **Web runs were reported as driver `uiautomator2`** in reports — the `--driver` flag's Android default was leaking through; web reports now say `cdp`.
+
+### Contributors
+
+[@georgetarazi-swipejobs](https://github.com/georgetarazi-swipejobs)
+1. Reported the WDA `inputText` focus-gate regression on accessibility-merged React Native fields ([#143](https://github.com/devicelab-dev/maestro-runner/issues/143))
+
+[@whalemare](https://github.com/whalemare)
+1. Requested the app build number alongside the version in reports ([#144](https://github.com/devicelab-dev/maestro-runner/issues/144))
+
 ## [1.1.23] - 2026-08-11
 
 This release is about **silent failures** — steps that reported success while doing nothing, or while acting on the wrong element. Four separate commands were quietly discarding a parameter, taps could land on the soft keyboard and report success, and text could be typed into a field the flow never named. Alongside those: dark-mode control, a device-free `lint` command, and per-step latency in the report.
