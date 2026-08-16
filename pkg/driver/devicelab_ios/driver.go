@@ -6,6 +6,7 @@ import (
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	"github.com/devicelab-dev/maestro-runner/pkg/flow"
+	"github.com/devicelab-dev/maestro-runner/pkg/simulator"
 )
 
 // Driver implements core.Driver using the devicelab-ios-runner XCUITest
@@ -17,6 +18,9 @@ type Driver struct {
 	info   *core.PlatformInfo
 	udid   string
 	appID  string
+
+	// In-flight --record capture (simulators only)
+	recording *simulator.Recording
 
 	// Parent context for element-finding operations.
 	ctx context.Context

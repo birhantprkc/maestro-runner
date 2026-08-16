@@ -1032,6 +1032,10 @@ const htmlTemplate = `<!DOCTYPE html>
         }
 
         .console-logs { margin-top: 16px; }
+        .flow-video { margin-bottom: 12px; }
+        .flow-video summary { cursor: pointer; font-size: 13px; color: var(--text-secondary, #666); user-select: none; }
+        .flow-video video { display: block; margin-top: 8px; max-width: 100%; max-height: 480px; border-radius: 6px; }
+
         .console-header {
             display: flex;
             align-items: center;
@@ -1241,6 +1245,7 @@ const htmlTemplate = `<!DOCTYPE html>
                     <div class="detail-title" id="detail-title"></div>
                 </div>
                 <div class="detail-info" id="detail-info"></div>
+                <div id="flow-video"></div>
                 <div class="command-list" id="command-list"></div>
                 <div class="console-logs" id="console-logs"></div>
             </div>
@@ -1687,6 +1692,15 @@ const htmlTemplate = `<!DOCTYPE html>
 
             infoHtml += '<div class="info-item"><span class="info-label">Source</span><span class="info-value">' + flow.sourceFile + '</span></div>';
             document.getElementById('detail-info').innerHTML = infoHtml;
+
+            // Screen recording (--record) — collapsed by default, above the steps
+            const videoEl = document.getElementById('flow-video');
+            if (flow.artifacts && flow.artifacts.video) {
+                videoEl.innerHTML = '<details class="flow-video"><summary>Screen recording</summary>' +
+                    '<video controls preload="metadata" src="' + encodeURI(flow.artifacts.video) + '"></video></details>';
+            } else {
+                videoEl.innerHTML = '';
+            }
 
             // Commands - compact format with sub-commands support
             document.getElementById('command-list').innerHTML = renderCommands(flow.commands, flowIndex, 0);

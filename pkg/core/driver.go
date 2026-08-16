@@ -242,6 +242,19 @@ type SessionEnsurer interface {
 	EnsureSession(appID string) error
 }
 
+// ScreenRecorder is an optional interface drivers can implement to record the
+// device screen while a flow runs (--record). Recording is best-effort: the
+// executor logs a failure from either method and continues, so an error here
+// never fails a flow.
+type ScreenRecorder interface {
+	// StartScreenRecording begins recording. An error means recording is not
+	// possible right now (e.g. a physical device without a capture path).
+	StartScreenRecording() error
+	// StopScreenRecording finishes the recording and writes an MP4 to
+	// hostPath. Called only after a successful StartScreenRecording.
+	StopScreenRecording(hostPath string) error
+}
+
 // FlowAware is an optional interface drivers can implement to inspect the
 // upcoming flow before session creation. The WDA driver uses this to decide
 // whether to register XCTest's alert monitor at session creation — only flows

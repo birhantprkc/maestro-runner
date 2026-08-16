@@ -179,6 +179,10 @@ Examples:
 			Usage:   "Overwrite existing assertScreenshot baselines with the current screen (missing baselines are always seeded on first run)",
 			EnvVars: []string{"MAESTRO_UPDATE_SCREENSHOTS"},
 		},
+		&cli.BoolFlag{
+			Name:  "record",
+			Usage: "Record the screen during every flow and save recording.mp4 into the flow's report assets (Android devices/emulators and iOS simulators)",
+		},
 
 		// Emulator management flags (start-emulator, auto-start-emulator,
 		// shutdown-after, boot-timeout) are global flags defined in cli.go.
@@ -242,7 +246,9 @@ func resolveDriverName(cfg *RunConfig, platform string) string {
 	driverName := strings.ToLower(cfg.Driver)
 	switch strings.ToLower(platform) {
 	case "web":
-		if driverName == "" {
+		// "uiautomator2" here is just the --driver flag's default leaking
+		// through, same as the ios case below — not a user choice.
+		if driverName == "" || driverName == "uiautomator2" {
 			driverName = "cdp"
 		}
 	case "ios":
@@ -550,6 +556,9 @@ type RunConfig struct {
 	// UpdateScreenshots overwrites existing assertScreenshot baselines.
 	UpdateScreenshots bool
 
+	// Record captures a screen recording of every flow (--record).
+	Record bool
+
 	// Cloud provider (detected from AppiumURL, nil if not a cloud provider)
 	CloudProvider cloud.Provider
 	CloudMeta     map[string]string
@@ -744,6 +753,7 @@ func runTest(c *cli.Context) error {
 		AndroidTCPForward:  getBool("android-tcp-forward"),
 		Artifacts:          parseArtifactMode(getString("artifacts")),
 		UpdateScreenshots:  getBool("update-screenshots"),
+		Record:             getBool("record"),
 	}
 
 	// Apply waitForIdleTimeout with priority:
@@ -1405,11 +1415,18 @@ func executeSingleDevice(cfg *RunConfig, flows []flow.Flow) (*executor.RunResult
 	driverName := resolveDriverName(cfg, cfg.Platform)
 	deviceInfo := buildDeviceReport(driver)
 
+	if cfg.Record {
+		if _, ok := core.Unwrap(driver).(core.ScreenRecorder); !ok {
+			printSetupWarning(fmt.Sprintf("--record: the %s driver does not support screen recording — running without it", driverName))
+		}
+	}
+
 	runner := executor.New(driver, executor.RunnerConfig{
 		OutputDir:          cfg.OutputDir,
 		Parallelism:        0,
 		Artifacts:          cfg.Artifacts,
 		UpdateScreenshots:  cfg.UpdateScreenshots,
+		Record:             cfg.Record,
 		Device:             deviceInfo,
 		App:                buildAppReport(driver),
 		RunnerVersion:      Version,
@@ -1448,11 +1465,18 @@ func ExecuteFlowWithDriver(driver core.Driver, cfg *RunConfig, f flow.Flow) (*ex
 	driverName := resolveDriverName(cfg, cfg.Platform)
 	deviceInfo := buildDeviceReport(driver)
 
+	if cfg.Record {
+		if _, ok := core.Unwrap(driver).(core.ScreenRecorder); !ok {
+			printSetupWarning(fmt.Sprintf("--record: the %s driver does not support screen recording — running without it", driverName))
+		}
+	}
+
 	runner := executor.New(driver, executor.RunnerConfig{
 		OutputDir:          cfg.OutputDir,
 		Parallelism:        0,
 		Artifacts:          cfg.Artifacts,
 		UpdateScreenshots:  cfg.UpdateScreenshots,
+		Record:             cfg.Record,
 		Device:             deviceInfo,
 		App:                buildAppReport(driver),
 		RunnerVersion:      Version,
@@ -1779,6 +1803,7 @@ func executeAppiumSingleSession(cfg *RunConfig, flows []flow.Flow) (*executor.Ru
 		Parallelism:        0,
 		Artifacts:          cfg.Artifacts,
 		UpdateScreenshots:  cfg.UpdateScreenshots,
+		Record:             cfg.Record,
 		Device:             deviceInfo,
 		App:                buildAppReport(driver),
 		RunnerVersion:      Version,
@@ -2654,6 +2679,7 @@ func createParallelRunner(cfg *RunConfig, workers []executor.DeviceWorker, platf
 		Parallelism:        0,
 		Artifacts:          cfg.Artifacts,
 		UpdateScreenshots:  cfg.UpdateScreenshots,
+		Record:             cfg.Record,
 		Device:             deviceInfo,
 		App:                buildAppReport(firstDriver),
 		RunnerVersion:      Version,

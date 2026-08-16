@@ -155,6 +155,27 @@ func (fr *FlowRunner) Run() FlowResult {
 	// Mark flow as started
 	fr.flowWriter.Start()
 
+	// --record: capture the whole flow, onFlowComplete hooks included — this
+	// defer is registered before theirs, so it runs after them. Best-effort
+	// throughout: a driver that can't record must not fail the flow.
+	if fr.config.Record {
+		if recorder, ok := innerDriver.(core.ScreenRecorder); ok {
+			if err := recorder.StartScreenRecording(); err != nil {
+				logger.Warn("--record: %v — continuing without recording", err)
+			} else {
+				defer func() {
+					if err := recorder.StopScreenRecording(fr.flowWriter.RecordingTarget()); err != nil {
+						logger.Warn("--record: failed to save recording: %v", err)
+						return
+					}
+					fr.flowWriter.SetVideo()
+				}()
+			}
+		} else {
+			logger.Warn("--record: the %s driver does not support screen recording", fr.config.DriverName)
+		}
+	}
+
 	// Reset any console / page-error noise captured before the first step
 	// ran. The CDP browser driver subscribes to Runtime events during
 	// construction and the initial navigation to cfg.URL fires events

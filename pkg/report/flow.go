@@ -209,6 +209,19 @@ func (w *FlowWriter) SaveViewHierarchy(cmdIndex int, data []byte) (string, error
 	return filepath.Join("assets", w.flow.ID, filename), nil
 }
 
+// RecordingTarget returns the absolute path a flow screen recording should be
+// written to. The file does not exist until a driver writes it.
+func (w *FlowWriter) RecordingTarget() string {
+	return filepath.Join(w.assetsDir, "recording.mp4")
+}
+
+// SetVideo records that a screen recording exists at RecordingTarget,
+// storing the report-relative path alongside the other flow artifacts.
+func (w *FlowWriter) SetVideo() {
+	w.flow.Artifacts.Video = filepath.Join("assets", w.flow.ID, "recording.mp4")
+	w.flush()
+}
+
 // SaveDeviceLog saves device log and returns the relative path.
 func (w *FlowWriter) SaveDeviceLog(data []byte) (string, error) {
 	filename := "device.log"

@@ -11,6 +11,7 @@ import (
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	"github.com/devicelab-dev/maestro-runner/pkg/flow"
 	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+	"github.com/devicelab-dev/maestro-runner/pkg/simulator"
 )
 
 // Driver implements core.Driver using WebDriverAgent for iOS.
@@ -18,6 +19,9 @@ type Driver struct {
 	client *Client
 	info   *core.PlatformInfo
 	udid   string // Device UDID for simctl commands
+
+	// In-flight --record capture (simulators only)
+	recording *simulator.Recording
 
 	// Parent context for element-finding operations (nil = context.Background())
 	ctx context.Context

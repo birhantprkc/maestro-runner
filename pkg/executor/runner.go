@@ -35,6 +35,11 @@ type RunnerConfig struct {
 	// Missing baselines are always seeded on first run regardless of this flag.
 	UpdateScreenshots bool
 
+	// Record captures a screen recording of every flow into its assets
+	// directory (--record). Best-effort: drivers that can't record are logged
+	// and the run continues without video.
+	Record bool
+
 	// Device/App info for reports
 	Device report.Device
 	App    report.App

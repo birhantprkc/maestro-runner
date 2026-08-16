@@ -241,6 +241,12 @@ func (d *AndroidDevice) Push(localPath, remotePath string) error {
 	return err
 }
 
+// Pull copies a file from the device to the host.
+func (d *AndroidDevice) Pull(remotePath, localPath string) error {
+	_, err := d.adb("pull", remotePath, localPath)
+	return err
+}
+
 // GetAppVersion returns the version name of an installed app.
 // Returns empty string if app is not installed or version cannot be determined.
 func (d *AndroidDevice) GetAppVersion(packageName string) string {
