@@ -222,6 +222,12 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 		return result
 	}
 
+	// A count assertion needs every match, not the first one — route to the
+	// page-source path, which is the only enumerator we have.
+	if step.Count != "" {
+		return d.assertVisibleCount(step)
+	}
+
 	// Use findElementFast - only need to check element exists (1 HTTP call vs 3)
 	_, info, err := d.findElementFast(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
@@ -235,6 +241,71 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 	}
 
 	return errorResult(fmt.Errorf("element not visible"), "Element exists but is not visible")
+}
+
+// assertVisibleCount asserts that the selector matches exactly the requested
+// number of visible elements. Polls until the count is right or the assert
+// timeout runs out, reporting the last observed count on failure.
+func (d *Driver) assertVisibleCount(step *flow.AssertVisibleStep) *core.CommandResult {
+	want, _, err := step.ExpectedCount()
+	if err != nil {
+		return errorResult(err, err.Error())
+	}
+	if step.Selector.HasRelativeSelector() {
+		err := fmt.Errorf("count cannot be combined with relative selectors (childOf/below/...)")
+		return errorResult(err, err.Error())
+	}
+
+	timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
+	defer cancel()
+
+	desc := step.Selector.Describe()
+	observed := -1
+	var lastErr error
+	for {
+		select {
+		case <-ctx.Done():
+			if observed < 0 {
+				if lastErr != nil {
+					return errorResult(lastErr, fmt.Sprintf("Failed to count matches of '%s': %v", desc, lastErr))
+				}
+				return errorResult(ctx.Err(), fmt.Sprintf("Expected %d visible matches of '%s' but no observation completed: %v", want, desc, ctx.Err()))
+			}
+			err := fmt.Errorf("expected %d visible matches of '%s', last observed %d", want, desc, observed)
+			return errorResult(err, err.Error())
+		default:
+			n, err := d.countVisibleMatches(step.Selector)
+			if err != nil {
+				lastErr = err
+				continue // page-source round-trip is the natural rate limit
+			}
+			observed = n
+			if n == want {
+				return successResult(fmt.Sprintf("%d elements visible", n), nil)
+			}
+		}
+	}
+}
+
+// countVisibleMatches reads the page source once and counts displayed matches,
+// applying the same off-screen filter as the single-match page-source path.
+func (d *Driver) countVisibleMatches(sel flow.Selector) (int, error) {
+	pageSource, err := d.client.Source()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get page source: %w", err)
+	}
+
+	allElements, err := ParsePageSource(pageSource)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse page source: %w", err)
+	}
+
+	if w, h, err := d.screenSize(); err == nil {
+		allElements = FilterOutOfBounds(allElements, w, h)
+	}
+
+	return CountDisplayedMatches(allElements, sel), nil
 }
 
 func (d *Driver) assertNotVisible(step *flow.AssertNotVisibleStep) *core.CommandResult {

@@ -62,7 +62,7 @@ func Wrap(inner core.Driver, client *VMServiceClient, dev DeviceExecutor, appID,
 // No port forwarding needed — the VM Service listens on localhost directly.
 func WrapIOS(inner core.Driver, client *VMServiceClient, udid, appID string) core.Driver {
 	return &FlutterDriver{
-		inner: inner,
+		inner:  inner,
 		client: client,
 		appID:  appID,
 		udid:   udid,
@@ -89,6 +89,13 @@ func (d *FlutterDriver) Execute(step flow.Step) *core.CommandResult {
 
 	// Non-element-finding steps → inner only
 	if !isElementFindingStep(step) {
+		return d.inner.Execute(step)
+	}
+
+	// Count assertions → inner only. The Flutter VM resolves a single element,
+	// so the parallel race is meaningless for "exactly N matches" — and its 1s
+	// inner poll windows would clamp the count's own polling loop.
+	if av, ok := step.(*flow.AssertVisibleStep); ok && av.Count != "" {
 		return d.inner.Execute(step)
 	}
 
@@ -588,9 +595,9 @@ func extractSelector(step flow.Step) *flow.Selector {
 
 // --- Pass-through methods ---
 
-func (d *FlutterDriver) Screenshot() ([]byte, error)       { return d.inner.Screenshot() }
-func (d *FlutterDriver) Hierarchy() ([]byte, error)         { return d.inner.Hierarchy() }
-func (d *FlutterDriver) GetState() *core.StateSnapshot      { return d.inner.GetState() }
+func (d *FlutterDriver) Screenshot() ([]byte, error)         { return d.inner.Screenshot() }
+func (d *FlutterDriver) Hierarchy() ([]byte, error)          { return d.inner.Hierarchy() }
+func (d *FlutterDriver) GetState() *core.StateSnapshot       { return d.inner.GetState() }
 func (d *FlutterDriver) GetPlatformInfo() *core.PlatformInfo { return d.inner.GetPlatformInfo() }
 func (d *FlutterDriver) SetFindTimeout(ms int) {
 	d.findTimeoutMs = ms

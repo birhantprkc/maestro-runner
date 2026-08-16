@@ -172,6 +172,13 @@ func parseBounds(s string) core.Bounds {
 }
 
 // FilterBySelector filters elements by non-relative selector properties.
+// CountDisplayedMatches returns how many elements match the selector and are
+// visible to the user. FilterBySelector already drops displayed="false"
+// nodes, so its length is the visible-match count assertVisible count: needs.
+func CountDisplayedMatches(elements []*ParsedElement, sel flow.Selector) int {
+	return len(FilterBySelector(elements, sel))
+}
+
 func FilterBySelector(elements []*ParsedElement, sel flow.Selector) []*ParsedElement {
 	var result []*ParsedElement
 

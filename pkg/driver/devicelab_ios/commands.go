@@ -289,6 +289,12 @@ func (d *Driver) handleInputText(s *flow.InputTextStep) *core.CommandResult {
 }
 
 func (d *Driver) handleAssertVisible(s *flow.AssertVisibleStep) *core.CommandResult {
+	if want, has, cerr := s.ExpectedCount(); cerr != nil {
+		return core.ErrorResult(cerr, cerr.Error())
+	} else if has {
+		return d.assertVisibleCount(s, want)
+	}
+
 	// IsOptional is honoured by findElement (short poll budget +
 	// returns nil-nil on absence). We always surface "not visible" as an
 	// ErrorResult: the flow_runner skips optional failures without
@@ -305,6 +311,53 @@ func (d *Driver) handleAssertVisible(s *flow.AssertVisibleStep) *core.CommandRes
 		return core.ErrorResult(fmt.Errorf("element not visible"), "element not visible")
 	}
 	return core.SuccessResult("visible", toElementInfo(node))
+}
+
+// assertVisibleCount asserts that exactly want elements matching the
+// selector are visible. Polls on the same timeout ladder as findElement,
+// re-snapshotting until an observation has exactly the wanted count or the
+// deadline passes. The last observed count goes into the failure message —
+// "found 2" tells the flow author much more than "not visible".
+func (d *Driver) assertVisibleCount(s *flow.AssertVisibleStep, want int) *core.CommandResult {
+	deadline := time.Now().Add(time.Duration(d.resolveFindTimeoutMs(s.IsOptional(), s.TimeoutMs)) * time.Millisecond)
+
+	got := 0
+	firstPass := true
+	for {
+		if !firstPass {
+			// Same reason as findElement: force a fresh snapshot per retry
+			// so the cache TTL can't pin us to a pre-navigation tree.
+			d.invalidateSnapshotCache()
+		}
+		firstPass = false
+
+		nodes, err := d.snapshotMatching(s.Selector)
+		if err != nil {
+			return core.ErrorResult(err, "assertVisible: "+err.Error())
+		}
+		got = countDisplayed(nodes)
+		if got == want {
+			return core.SuccessResult(fmt.Sprintf("%d visible", got), nil)
+		}
+		if !time.Now().Before(deadline) {
+			err := fmt.Errorf("expected %d visible matches of %s, found %d",
+				want, describeSelector(s.Selector), got)
+			return core.ErrorResult(err, err.Error())
+		}
+		// No explicit sleep — snapshotMatching does a real HTTP round-trip
+		// (~100-200ms) which paces the loop naturally.
+	}
+}
+
+// countDisplayed returns how many of the nodes are visible on screen.
+func countDisplayed(nodes []SnapshotNode) int {
+	count := 0
+	for i := range nodes {
+		if isDisplayed(&nodes[i]) {
+			count++
+		}
+	}
+	return count
 }
 
 func (d *Driver) handleAssertNotVisible(s *flow.AssertNotVisibleStep) *core.CommandResult {
@@ -988,21 +1041,7 @@ func (d *Driver) tryTapBySelector(key, value string) (*tapBySelectorHit, error) 
 // by default — looking for an optional element shouldn't block the flow
 // for the full required-element timeout.
 func (d *Driver) findElement(sel flow.Selector, optional bool, stepTimeoutMs int) (*SnapshotNode, error) {
-	var timeout int
-	switch {
-	case stepTimeoutMs > 0:
-		timeout = stepTimeoutMs
-	case optional && d.optionalFindTimeout > 0:
-		timeout = d.optionalFindTimeout
-	case optional:
-		timeout = defaultOptionalFindTimeoutMs
-	case d.findTimeout > 0:
-		timeout = d.findTimeout
-	default:
-		timeout = defaultFindTimeoutMs
-	}
-
-	deadline := time.Now().Add(time.Duration(timeout) * time.Millisecond)
+	deadline := time.Now().Add(time.Duration(d.resolveFindTimeoutMs(optional, stepTimeoutMs)) * time.Millisecond)
 
 	qsKey, qsValue, qsOK := simpleSelectorKeyValue(sel)
 	firstPass := true
@@ -1043,6 +1082,24 @@ func (d *Driver) findElement(sel flow.Selector, optional bool, stepTimeoutMs int
 		}
 		// No explicit sleep — strategies 1 and 2 each do real HTTP round-trips
 		// (~100-200ms snapshot + ~50ms query) which paces the loop naturally.
+	}
+}
+
+// resolveFindTimeoutMs picks the poll budget for element resolution: an
+// explicit step timeout wins, then the (shorter) optional budget, then the
+// configured find timeout, then the driver default.
+func (d *Driver) resolveFindTimeoutMs(optional bool, stepTimeoutMs int) int {
+	switch {
+	case stepTimeoutMs > 0:
+		return stepTimeoutMs
+	case optional && d.optionalFindTimeout > 0:
+		return d.optionalFindTimeout
+	case optional:
+		return defaultOptionalFindTimeoutMs
+	case d.findTimeout > 0:
+		return d.findTimeout
+	default:
+		return defaultFindTimeoutMs
 	}
 }
 

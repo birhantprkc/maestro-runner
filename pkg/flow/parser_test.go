@@ -2243,3 +2243,66 @@ func TestParseDarkModeSteps(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_AssertVisibleCount(t *testing.T) {
+	yaml := `
+- assertVisible:
+    id: product-row
+    count: 3
+`
+	parsed, err := Parse([]byte(yaml), "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	step, ok := parsed.Steps[0].(*AssertVisibleStep)
+	if !ok {
+		t.Fatalf("expected AssertVisibleStep, got %T", parsed.Steps[0])
+	}
+	if step.Count != "3" {
+		t.Errorf("Count = %q, want %q", step.Count, "3")
+	}
+	n, has, err := step.ExpectedCount()
+	if err != nil || !has || n != 3 {
+		t.Errorf("ExpectedCount() = (%d, %v, %v), want (3, true, nil)", n, has, err)
+	}
+}
+
+func TestParse_AssertVisibleCount_Variable(t *testing.T) {
+	yaml := `
+- assertVisible:
+    id: row
+    count: ${ROWS}
+`
+	parsed, err := Parse([]byte(yaml), "test.yaml")
+	if err != nil {
+		t.Fatalf("a ${VAR} count must parse (validated after expansion): %v", err)
+	}
+	step := parsed.Steps[0].(*AssertVisibleStep)
+	if step.Count != "${ROWS}" {
+		t.Errorf("Count = %q, want %q", step.Count, "${ROWS}")
+	}
+	if _, _, err := step.ExpectedCount(); err == nil {
+		t.Error("ExpectedCount on an unexpanded variable should error")
+	}
+}
+
+func TestParse_AssertVisibleCount_Invalid(t *testing.T) {
+	for name, yaml := range map[string]string{
+		"zero":       "- assertVisible: {id: row, count: 0}",
+		"negative":   "- assertVisible: {id: row, count: -2}",
+		"not number": "- assertVisible: {id: row, count: many}",
+		"with index": "- assertVisible: {id: row, count: 2, index: 1}",
+	} {
+		if _, err := Parse([]byte(yaml), "test.yaml"); err == nil {
+			t.Errorf("%s: expected a parse error for %q", name, yaml)
+		}
+	}
+}
+
+func TestAssertVisibleStep_DescribeWithCount(t *testing.T) {
+	s := &AssertVisibleStep{Selector: Selector{ID: "row"}, Count: "3"}
+	got := s.Describe()
+	if !strings.Contains(got, "count: 3") {
+		t.Errorf("Describe() = %q, want it to mention the count", got)
+	}
+}

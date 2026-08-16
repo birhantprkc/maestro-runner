@@ -453,6 +453,17 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 		} else if err := valueNode.Decode(&s); err != nil {
 			return nil, wrapParseError(sourcePath, valueNode.Line, err)
 		}
+		// A numeric count literal is validated here so the flow fails before a
+		// device is touched; a ${VAR} count is validated after expansion.
+		if s.Count != "" && !strings.Contains(s.Count, "${") {
+			if _, _, err := s.ExpectedCount(); err != nil {
+				return nil, wrapParseError(sourcePath, valueNode.Line, err)
+			}
+		}
+		if s.Count != "" && s.Selector.Index != "" {
+			return nil, wrapParseError(sourcePath, valueNode.Line,
+				fmt.Errorf("assertVisible: count and index cannot be combined — count asserts how many elements match, index picks one of them"))
+		}
 		s.StepType = stepType
 		return &s, nil
 

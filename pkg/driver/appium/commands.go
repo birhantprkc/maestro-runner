@@ -497,12 +497,83 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 		timeout = d.getFindTimeout()
 	}
 
+	if n, has, err := step.ExpectedCount(); err != nil {
+		return errorResult(err, err.Error())
+	} else if has {
+		return d.assertVisibleCount(step.Selector, n, timeout)
+	}
+
 	info, err := d.findElement(step.Selector, timeout)
 	if err != nil {
 		return errorResult(err, fmt.Sprintf("Element not visible: %s", step.Selector.Describe()))
 	}
 
 	return successResult(fmt.Sprintf("Element is visible: %s", step.Selector.Describe()), info)
+}
+
+// assertVisibleCount asserts that exactly expected displayed elements match
+// the selector. Counting enumerates the page source with the same matcher
+// index selection uses, so what counts as a match is identical to what
+// `index:` would pick among. Polls until the count is met or the timeout
+// expires, then reports the last observed count.
+func (d *Driver) assertVisibleCount(sel flow.Selector, expected int, timeout time.Duration) *core.CommandResult {
+	desc := sel.Describe()
+	deadline := time.Now().Add(timeout)
+	observed := -1
+	var lastErr error
+
+	for {
+		if err := d.parentContext().Err(); err != nil {
+			return errorResult(err, fmt.Sprintf("Expected %d visible matches of %s", expected, desc))
+		}
+
+		n, err := d.countVisibleMatches(sel)
+		if err != nil {
+			lastErr = err
+		} else {
+			observed = n
+			if n == expected {
+				return successResult(fmt.Sprintf("Element is visible exactly %d time(s): %s", expected, desc), nil)
+			}
+		}
+
+		if time.Now().After(deadline) {
+			if observed < 0 {
+				return errorResult(lastErr, fmt.Sprintf("Expected %d visible matches of %s: could not read page source", expected, desc))
+			}
+			return errorResult(
+				fmt.Errorf("expected %d visible matches, found %d", expected, observed),
+				fmt.Sprintf("Expected %d visible matches of %s, found %d", expected, desc, observed),
+			)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// countVisibleMatches counts the displayed elements matching the selector in
+// the current page source.
+func (d *Driver) countVisibleMatches(sel flow.Selector) (int, error) {
+	source, err := d.client.Source()
+	if err != nil {
+		return 0, err
+	}
+	elements, platform, err := ParsePageSource(source)
+	if err != nil {
+		return 0, err
+	}
+	d.platform = platform
+	return countDisplayed(FilterBySelector(elements, sel, platform)), nil
+}
+
+// countDisplayed counts the elements the platform reports as displayed.
+func countDisplayed(elements []*ParsedElement) int {
+	n := 0
+	for _, e := range elements {
+		if e.Displayed {
+			n++
+		}
+	}
+	return n
 }
 
 func (d *Driver) assertNotVisible(step *flow.AssertNotVisibleStep) *core.CommandResult {

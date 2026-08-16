@@ -364,11 +364,21 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 
 	// Browser mode: use JS RAF-based polling (60fps in-browser, single CDP call).
 	if d.isBrowserMode() && d.webView != nil && d.webView.isConnected() {
+		if step.Count != "" {
+			err := fmt.Errorf("count is not supported in browser mode")
+			return errorResult(err, "assertVisible count: not supported in browser mode")
+		}
 		timeout := step.TimeoutMs
 		if timeout <= 0 {
 			timeout = 5000
 		}
 		return d.assertVisibleBrowser(step.Selector, timeout)
+	}
+
+	// A count assertion needs every match, not the first one — route to the
+	// page-source path, which is the only enumerator we have.
+	if step.Count != "" {
+		return d.assertVisibleCount(step)
 	}
 
 	_, info, err := d.findElementFastWithLazyRetry(step.Selector, step.IsOptional(), step.TimeoutMs)
@@ -381,6 +391,66 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 	}
 
 	return errorResult(fmt.Errorf("element not visible"), "Element exists but is not visible")
+}
+
+// assertVisibleCount asserts that the selector matches exactly the requested
+// number of visible elements. Polls until the count is right or the assert
+// timeout runs out, reporting the last observed count on failure.
+func (d *Driver) assertVisibleCount(step *flow.AssertVisibleStep) *core.CommandResult {
+	want, _, err := step.ExpectedCount()
+	if err != nil {
+		return errorResult(err, err.Error())
+	}
+	if step.Selector.HasRelativeSelector() {
+		err := fmt.Errorf("count cannot be combined with relative selectors (childOf/below/...)")
+		return errorResult(err, err.Error())
+	}
+
+	timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
+	defer cancel()
+
+	desc := step.Selector.Describe()
+	observed := -1
+	var lastErr error
+	for {
+		select {
+		case <-ctx.Done():
+			if observed < 0 {
+				if lastErr != nil {
+					return errorResult(lastErr, fmt.Sprintf("Failed to count matches of '%s': %v", desc, lastErr))
+				}
+				return errorResult(ctx.Err(), fmt.Sprintf("Expected %d visible matches of '%s' but no observation completed: %v", want, desc, ctx.Err()))
+			}
+			err := fmt.Errorf("expected %d visible matches of '%s', last observed %d", want, desc, observed)
+			return errorResult(err, err.Error())
+		default:
+			n, err := d.countVisibleMatches(step.Selector)
+			if err != nil {
+				lastErr = err
+				continue // page-source round-trip is the natural rate limit
+			}
+			observed = n
+			if n == want {
+				return successResult(fmt.Sprintf("%d elements visible", n), nil)
+			}
+		}
+	}
+}
+
+// countVisibleMatches reads the page source once and counts visible matches.
+func (d *Driver) countVisibleMatches(sel flow.Selector) (int, error) {
+	pageSource, err := d.client.Source()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get page source: %w", err)
+	}
+
+	allElements, err := ParsePageSource(pageSource)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse page source: %w", err)
+	}
+
+	return CountDisplayedMatches(allElements, sel), nil
 }
 
 // assertVisibleBrowser uses the injected __maestro.waitForVisible() JS helper.

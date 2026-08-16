@@ -203,6 +203,12 @@ func (d *Driver) tapOnPoint(step *flow.TapOnPointStep) *core.CommandResult {
 // Assert commands
 
 func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult {
+	if want, has, err := step.ExpectedCount(); err != nil {
+		return errorResult(err, err.Error())
+	} else if has {
+		return d.assertVisibleCount(step, want)
+	}
+
 	info, err := d.findElement(step.Selector, step.IsOptional(), step.TimeoutMs)
 	if err != nil {
 		return errorResult(err, fmt.Sprintf("Element not visible: %s", selectorDesc(step.Selector)))
@@ -213,6 +219,72 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 		msg = "Element is visible (" + info.MatchNote + ")"
 	}
 	return successResult(msg, info)
+}
+
+// assertVisibleCount asserts that the selector matches exactly `want` visible
+// elements. Counting needs the full page source (WDA's native find returns a
+// single match), so this polls one snapshot per tick — the way assertNotVisible
+// polls — until the expected count is observed or the deadline passes.
+func (d *Driver) assertVisibleCount(step *flow.AssertVisibleStep, want int) *core.CommandResult {
+	if step.Selector.HasRelativeSelector() {
+		err := fmt.Errorf("count cannot be combined with relative selectors (below/above/childOf/…)")
+		return errorResult(err, err.Error())
+	}
+
+	timeout := d.calculateTimeout(step.IsOptional(), step.TimeoutMs)
+	ctx, cancel := context.WithTimeout(d.parentContext(), timeout)
+	defer cancel()
+
+	// lastSeen distinguishes "counted the wrong number" from "never managed to
+	// read the screen" — the two need different failure messages.
+	lastSeen := -1
+	var lastErr error
+	for {
+		select {
+		case <-ctx.Done():
+			if lastSeen < 0 {
+				if lastErr == nil {
+					lastErr = ctx.Err()
+				}
+				return errorResult(lastErr, fmt.Sprintf(
+					"Expected %d visible matches of %s, but could not read the screen: %v",
+					want, selectorDesc(step.Selector), lastErr))
+			}
+			return errorResult(
+				fmt.Errorf("expected %d matches, found %d", want, lastSeen),
+				fmt.Sprintf("Expected %d visible matches of %s, found %d",
+					want, selectorDesc(step.Selector), lastSeen))
+		default:
+			n, err := d.countVisibleMatchesOnce(step.Selector)
+			if err != nil {
+				lastErr = err
+			} else {
+				lastSeen = n
+				if n == want {
+					return successResult(fmt.Sprintf("%d elements visible", n), nil)
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+}
+
+// countVisibleMatchesOnce takes one page-source snapshot and counts the
+// selector's visible matches.
+func (d *Driver) countVisibleMatchesOnce(sel flow.Selector) (int, error) {
+	pageSource, err := d.client.Source()
+	if err != nil {
+		return 0, err
+	}
+	allElements, err := ParsePageSource(pageSource)
+	if err != nil {
+		return 0, err
+	}
+	w, h := 0, 0
+	if sw, sh, sizeErr := d.screenSize(); sizeErr == nil {
+		w, h = sw, sh
+	}
+	return CountVisibleMatches(allElements, sel, w, h), nil
 }
 
 func (d *Driver) assertNotVisible(step *flow.AssertNotVisibleStep) *core.CommandResult {

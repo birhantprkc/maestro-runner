@@ -348,6 +348,12 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 	// (findElement records them but the fast path bypasses findElement).
 	d.recordUnsupportedFields(&step.Selector)
 
+	if n, has, cntErr := step.ExpectedCount(); cntErr != nil {
+		return errorResult(cntErr, cntErr.Error())
+	} else if has {
+		return d.assertVisibleCount(step.Selector, n, timeoutMs)
+	}
+
 	selectorType, selectorValue := jsSelectorTypeValue(step.Selector)
 	if selectorType != "" && !needsGoFinder(step.Selector) {
 		// Use RAF-based JS polling: consistent with waitUntil visibility checks
@@ -379,6 +385,49 @@ func (d *Driver) assertVisible(step *flow.AssertVisibleStep) *core.CommandResult
 		)
 	}
 	return successResult(fmt.Sprintf("Element %s is visible", desc), info)
+}
+
+// assertVisibleCount asserts that exactly expected elements matching the
+// selector are visible. Counting rides the JS helper's cross-root enumeration
+// (the same matching waitForVisible uses), polling via requestAnimationFrame
+// until the count is met or the timeout expires.
+//
+// Selector features only the Go-side finder implements — state filters, and
+// ARIA roles resolved through the accessibility tree — have no all-matches
+// enumeration to count with, so they are rejected rather than miscounted.
+func (d *Driver) assertVisibleCount(sel flow.Selector, expected, timeoutMs int) *core.CommandResult {
+	desc := sel.DescribeQuoted()
+
+	if sel.Enabled != nil || sel.Checked != nil || sel.Focused != nil || sel.Selected != nil {
+		err := fmt.Errorf("assertVisible count with state filters (enabled/checked/focused/selected) is not supported on web")
+		return errorResult(err, err.Error())
+	}
+	if sel.Role != "" {
+		err := fmt.Errorf("assertVisible count with role selectors is not supported on web — roles resolve through the accessibility tree, which cannot enumerate all matches")
+		return errorResult(err, err.Error())
+	}
+
+	selectorType, selectorValue := jsSelectorTypeValue(sel)
+	if selectorValue == "" {
+		err := fmt.Errorf("no selector specified")
+		return errorResult(err, err.Error())
+	}
+
+	result, err := d.page.Timeout(time.Duration(timeoutMs+1000) * time.Millisecond).Evaluate(
+		rod.Eval(`(type, value, expected, timeout) => window.__maestro.waitForVisibleCount(type, value, expected, timeout)`,
+			selectorType, selectorValue, expected, timeoutMs).ByPromise(),
+	)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("Expected %d visible matches of %s", expected, desc))
+	}
+	observed := int(result.Value.Int())
+	if observed != expected {
+		return errorResult(
+			fmt.Errorf("expected %d visible matches, found %d", expected, observed),
+			fmt.Sprintf("Expected %d visible matches of %s, found %d", expected, desc, observed),
+		)
+	}
+	return successResult(fmt.Sprintf("Element %s is visible exactly %d time(s)", desc, expected), nil)
 }
 
 // needsGoFinder reports whether a selector has features the JS fast-path

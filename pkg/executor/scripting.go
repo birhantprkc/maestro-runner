@@ -681,6 +681,7 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		s.Selector = *se.expandSelector(&s.Selector)
 	case *flow.AssertVisibleStep:
 		s.Selector = *se.expandSelector(&s.Selector)
+		s.Count = se.ExpandVariables(s.Count)
 	case *flow.AssertNotVisibleStep:
 		s.Selector = *se.expandSelector(&s.Selector)
 	case *flow.WaitUntilStep:

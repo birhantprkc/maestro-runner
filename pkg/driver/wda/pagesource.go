@@ -197,6 +197,18 @@ func HasVisibleDescendant(elem *ParsedElement) bool {
 	return false
 }
 
+// CountVisibleMatches returns how many elements match the selector, applying
+// the same visibility rules as the single-match page-source path: elements
+// outside the screen bounds are excluded (when the screen size is known), and
+// XCUITest's own visible="false" opinion is not trusted (see
+// findElementByPageSourceOnce for why).
+func CountVisibleMatches(elements []*ParsedElement, sel flow.Selector, screenW, screenH int) int {
+	if screenW > 0 && screenH > 0 {
+		elements = FilterOutOfBounds(elements, screenW, screenH)
+	}
+	return len(FilterBySelector(elements, sel))
+}
+
 // FilterBySelector filters elements by selector properties.
 func FilterBySelector(elements []*ParsedElement, sel flow.Selector) []*ParsedElement {
 	var result []*ParsedElement

@@ -516,6 +516,62 @@ window.__maestro = {
     });
   },
 
+  // Number of currently visible elements matching the selector.
+  //
+  // `id` needs a count-specific enumeration: _findMatchingElements stops the
+  // id cascade at the first hit (right for "is any visible", wrong for
+  // counting), so here each cascade strategy is queried with querySelectorAll
+  // and the first strategy that matches anything contributes ALL its matches.
+  _countVisible: function(selectorType, selectorValue) {
+    var elements;
+    if (selectorType === 'id') {
+      var docs = this._collectRoots();
+      var escaped = (selectorValue || '').replace(/"/g, '\\"');
+      var cascade = [
+        '[id="' + escaped + '"]',
+        '[data-testid="' + escaped + '"]',
+        '[flt-semantics-identifier="' + escaped + '"]',
+        '[id*="' + escaped + '"]',
+        '[name="' + escaped + '"]',
+        '[aria-label="' + escaped + '"]',
+      ];
+      elements = [];
+      for (var s = 0; s < cascade.length && elements.length === 0; s++) {
+        for (var d = 0; d < docs.length; d++) {
+          try {
+            var found = docs[d].querySelectorAll(cascade[s]);
+            for (var i = 0; i < found.length; i++) elements.push(found[i]);
+          } catch (e) {}
+        }
+      }
+    } else {
+      elements = this._findMatchingElements(selectorType, selectorValue);
+    }
+    var n = 0;
+    for (var j = 0; j < elements.length; j++) {
+      if (this._isElementVisible(elements[j])) n++;
+    }
+    return n;
+  },
+
+  // RAF-based polling: waits until exactly `expected` matching elements are
+  // visible, or timeout. Resolves to the last observed count so the caller
+  // can report what it actually saw.
+  waitForVisibleCount: function(selectorType, selectorValue, expected, timeoutMs) {
+    var self = this;
+    return new Promise(function(resolve) {
+      var deadline = Date.now() + timeoutMs;
+      var last = self._countVisible(selectorType, selectorValue);
+      if (last === expected) { resolve(last); return; }
+      function check() {
+        last = self._countVisible(selectorType, selectorValue);
+        if (last === expected || Date.now() >= deadline) { resolve(last); return; }
+        requestAnimationFrame(check);
+      }
+      requestAnimationFrame(check);
+    });
+  },
+
   // ─── Iframe / shadow-root click coordinate translation + hit-target verify ───
   //
   // Ports Playwright's `_checkFrameIsHitTarget` walk and `setupHitTargetInterceptor`

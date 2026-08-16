@@ -2,6 +2,8 @@
 package flow
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -360,6 +362,28 @@ type SetClipboardStep struct {
 type AssertVisibleStep struct {
 	BaseStep `yaml:",inline"`
 	Selector Selector `yaml:",inline"`
+	// Count asserts that the selector matches exactly N visible elements
+	// (Maestro #1363). A string so flows can write `count: ${N}`; empty means
+	// the ordinary at-least-one assertion.
+	Count string `yaml:"count"`
+}
+
+// ExpectedCount resolves the step's count assertion. Returns (0, false, nil)
+// when no count was requested. The value must be a positive integer once
+// variables are expanded — zero would silently shadow assertNotVisible, and
+// anything unparseable is a flow bug worth failing loudly on.
+func (s *AssertVisibleStep) ExpectedCount() (int, bool, error) {
+	if s.Count == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s.Count))
+	if err != nil {
+		return 0, false, fmt.Errorf("assertVisible count: %q is not a number", s.Count)
+	}
+	if n < 1 {
+		return 0, false, fmt.Errorf("assertVisible count: must be at least 1 (got %d) — use assertNotVisible to assert absence", n)
+	}
+	return n, true, nil
 }
 
 // AssertNotVisibleStep asserts element is not visible.
@@ -925,6 +949,9 @@ func (s *LongPressOnStep) Describe() string {
 
 // Describe returns a human-readable description of the assert visible step.
 func (s *AssertVisibleStep) Describe() string {
+	if s.Count != "" {
+		return "assertVisible: " + s.Selector.DescribeQuoted() + " (count: " + s.Count + ")"
+	}
 	return "assertVisible: " + s.Selector.DescribeQuoted()
 }
 
