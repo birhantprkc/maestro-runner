@@ -679,6 +679,9 @@ func (se *ScriptEngine) ExpandStep(step flow.Step) {
 		s.Selector = *se.expandSelector(&s.Selector)
 	case *flow.LongPressOnStep:
 		s.Selector = *se.expandSelector(&s.Selector)
+	case *flow.DragAndDropStep:
+		s.From = *se.expandSelector(&s.From)
+		s.To = *se.expandSelector(&s.To)
 	case *flow.AssertVisibleStep:
 		s.Selector = *se.expandSelector(&s.Selector)
 		s.Count = se.ExpandVariables(s.Count)

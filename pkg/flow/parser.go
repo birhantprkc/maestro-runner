@@ -268,7 +268,7 @@ func isStepType(key string) bool {
 		StepMockNetwork, StepBlockNetwork, StepSetNetworkConditions, StepWaitForRequest, StepClearNetworkMocks,
 		StepTakeScreenshot, StepStartRecording,
 		StepStopRecording, StepAddMedia, StepRemoveMedia, StepPressKey, StepWaitForAnimationToEnd,
-		StepDefineVariables:
+		StepDefineVariables, StepDragAndDrop:
 		return true
 	}
 	return false
@@ -442,6 +442,28 @@ func decodeStep(stepType StepType, valueNode *yaml.Node, sourcePath string) (Ste
 			s.Text = valueNode.Value
 		} else if err := valueNode.Decode(&s); err != nil {
 			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		s.StepType = stepType
+		return &s, nil
+
+	case StepDragAndDrop:
+		var s DragAndDropStep
+		if err := valueNode.Decode(&s); err != nil {
+			return nil, wrapParseError(sourcePath, valueNode.Line, err)
+		}
+		if s.From.IsEmpty() && s.From.Point == "" {
+			return nil, wrapParseError(sourcePath, valueNode.Line,
+				fmt.Errorf("dragAndDrop: from requires a selector or point"))
+		}
+		if s.To.IsEmpty() && s.To.Point == "" {
+			return nil, wrapParseError(sourcePath, valueNode.Line,
+				fmt.Errorf("dragAndDrop: to requires a selector or point"))
+		}
+		if s.HoldDuration == 0 {
+			s.HoldDuration = 1000
+		}
+		if s.Duration == 0 {
+			s.Duration = 1000
 		}
 		s.StepType = stepType
 		return &s, nil

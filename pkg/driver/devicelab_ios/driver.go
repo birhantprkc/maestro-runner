@@ -163,11 +163,14 @@ func (d *Driver) parentContext() context.Context {
 
 func (d *Driver) currentBundleID() string { return d.appID } //nolint:unused
 
-// callTimeout returns a context with the find timeout applied (or a sane
-// default of 10s if unset).
+// callTimeout returns a context for a single runner HTTP call. The find
+// timeout raises it but never lowers it below 10s: the find timeout is a
+// polling budget, and callers like the Flutter fallback legitimately shrink
+// it to one second — which must shorten how long we keep looking, not cut
+// off an XCUITest snapshot or tap mid-flight.
 func (d *Driver) callTimeout() (context.Context, context.CancelFunc) {
 	ms := d.findTimeout
-	if ms <= 0 {
+	if ms < 10_000 {
 		ms = 10_000
 	}
 	return context.WithTimeout(d.parentContext(), time.Duration(ms)*time.Millisecond)

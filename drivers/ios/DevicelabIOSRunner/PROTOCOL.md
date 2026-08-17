@@ -165,7 +165,7 @@ All gestures accept `appBundleId` so the runner can target the right `XCUIApplic
 | `longPress` | `x, y, durationMs` | gesture timings |
 | `swipe` | EITHER `x, y, x2, y2, durationMs` OR `direction, percent` | gesture timings + `path: [{x,y},...]` |
 | `scroll` | EITHER coordinate path OR `direction, percent` (same as swipe but with slower default duration) | gesture timings |
-| `drag` | `x, y, x2, y2, durationMs, holdMs?` | gesture timings + path |
+| `drag` | `x, y, x2, y2, durationMs` (press-before-move hold), `moveDurationMs?` (movement time — local addition; when set, drags via `press(forDuration:thenDragTo:withVelocity:thenHoldForDuration:)` with a 250ms settle before release, for dragAndDrop reorder semantics) | gesture timings + path |
 | `pinch` | `x, y, scale, durationMs` | gesture timings |
 | `pressButton` | `button: "home"|"lock"|"volumeUp"|"volumeDown"|"appSwitcher"` | `{ pressed: true }` |
 | `rotate` | `orientation: "portrait"|"landscapeLeft"|"landscapeRight"|"portraitUpsideDown"` | `{ orientation }` |

@@ -486,6 +486,8 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.scrollUntilVisible(s)
 	case *flow.SwipeStep:
 		result = d.swipe(s)
+	case *flow.DragAndDropStep:
+		result = d.dragAndDrop(s)
 
 	// Navigation commands
 	case *flow.BackStep:

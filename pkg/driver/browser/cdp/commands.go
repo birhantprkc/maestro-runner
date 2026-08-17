@@ -667,13 +667,32 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	}
 
 	center := d.viewportCenter()
+	partiallyVisible := false
 	for i := 0; i < maxScrolls; i++ {
 		elem, info, err := d.findElementOnce(step.Element)
 		if err == nil && info != nil && info.Visible {
-			return successResult(
-				fmt.Sprintf("Element visible after %d scrolls", i),
-				info,
-			)
+			// Visible in the DOM is not enough on the top frame: an element
+			// below the fold passes every CSS visibility check, so without a
+			// viewport test this loop could declare success without scrolling
+			// at all. Require the fraction the step asks for (default: fully
+			// inside the viewport). Iframe elements keep the old acceptance —
+			// their bounds are frame-local and their scroll path is
+			// scrollIntoView, which the finder's visibility already reflects.
+			inIframe := false
+			if elem != nil {
+				if v, _ := elem.Eval(`() => window.__maestro._isInIframe(this)`); v != nil {
+					inIframe = v.Value.Bool()
+				}
+			}
+			boundsKnown := info.Bounds.Width > 0 && info.Bounds.Height > 0 && d.viewportW > 0 && d.viewportH > 0
+			if inIframe || !boundsKnown ||
+				core.MeetsVisibility(info.Bounds, d.viewportW, d.viewportH, step.VisibilityPercentage) {
+				return successResult(
+					fmt.Sprintf("Element visible after %d scrolls", i),
+					info,
+				)
+			}
+			partiallyVisible = true
 		}
 
 		// Iframe / shadow-root branch: top-frame Mouse.Scroll dispatches a
@@ -707,10 +726,78 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 		time.Sleep(300 * time.Millisecond)
 	}
 
+	if partiallyVisible {
+		return errorResult(
+			fmt.Errorf("element found but never sufficiently visible after %d scrolls", maxScrolls),
+			fmt.Sprintf("Element %s stayed partially outside the viewport after scrolling", step.Element.DescribeQuoted()),
+		)
+	}
 	return errorResult(
 		fmt.Errorf("element not visible after %d scrolls", maxScrolls),
 		fmt.Sprintf("Element %s not visible after scrolling", step.Element.DescribeQuoted()),
 	)
+}
+
+// resolveDragEnd turns one end of a dragAndDrop into viewport coordinates:
+// a bare point resolves against the viewport, anything else finds the
+// element and uses its center.
+func (d *Driver) resolveDragEnd(sel flow.Selector, timeoutMs int) (float64, float64, *core.ElementInfo, error) {
+	if sel.Point != "" && sel.IsEmpty() {
+		x, y, err := core.ParsePointCoords(sel.Point, d.viewportW, d.viewportH)
+		return float64(x), float64(y), nil, err
+	}
+	_, info, err := d.findElement(sel, false, timeoutMs)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("element not found: %s: %w", sel.Describe(), err)
+	}
+	cx, cy := info.Bounds.Center()
+	return float64(cx), float64(cy), info, nil
+}
+
+// dragAndDrop long-presses at the source, drags to the target in interpolated
+// moves, settles, and releases — the sequence JS drag widgets (sortable
+// lists, sliders, canvas editors) track. Native HTML5 draggable is the known
+// exception: dragstart/drop fire only for real OS drags and ignore synthetic
+// mouse events, so pages built solely on the HTML5 drag-and-drop API won't
+// move; that is a Chromium limitation, not a selector problem.
+func (d *Driver) dragAndDrop(step *flow.DragAndDropStep) *core.CommandResult {
+	fromX, fromY, fromInfo, err := d.resolveDragEnd(step.From, step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop from: %v", err))
+	}
+	toX, toY, _, err := d.resolveDragEnd(step.To, step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop to: %v", err))
+	}
+
+	mouse := d.page.Mouse
+	if err := mouse.MoveTo(proto.NewPoint(fromX, fromY)); err != nil {
+		return errorResult(err, "Failed to move mouse for drag")
+	}
+	if err := mouse.Down(proto.InputMouseButtonLeft, 1); err != nil {
+		return errorResult(err, "Failed to press for drag")
+	}
+	time.Sleep(time.Duration(step.HoldDuration) * time.Millisecond)
+
+	const dragSteps = 20
+	stepDelay := time.Duration(step.Duration) * time.Millisecond / dragSteps
+	for i := 1; i <= dragSteps; i++ {
+		t := float64(i) / dragSteps
+		pt := proto.NewPoint(fromX+(toX-fromX)*t, fromY+(toY-fromY)*t)
+		if err := mouse.MoveTo(pt); err != nil {
+			return errorResult(err, "Failed to drag")
+		}
+		if stepDelay > 0 {
+			time.Sleep(stepDelay)
+		}
+	}
+	// Settle before release so drop targets register the hover.
+	time.Sleep(250 * time.Millisecond)
+	if err := mouse.Up(proto.InputMouseButtonLeft, 1); err != nil {
+		return errorResult(err, "Failed to release drag")
+	}
+
+	return successResult(fmt.Sprintf("Dragged (%.0f, %.0f) → (%.0f, %.0f)", fromX, fromY, toX, toY), fromInfo)
 }
 
 // swipe performs a swipe gesture using mouse drag.

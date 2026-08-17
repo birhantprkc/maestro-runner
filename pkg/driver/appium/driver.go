@@ -152,6 +152,8 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 		return d.longPressOn(s)
 	case *flow.TapOnPointStep:
 		return d.tapOnPoint(s)
+	case *flow.DragAndDropStep:
+		return d.dragAndDrop(s)
 	case *flow.SwipeStep:
 		return d.swipe(s)
 	case *flow.ScrollStep:

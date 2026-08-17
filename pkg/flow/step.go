@@ -19,6 +19,7 @@ const (
 	StepDoubleTapOn        StepType = "doubleTapOn"
 	StepLongPressOn        StepType = "longPressOn"
 	StepTapOnPoint         StepType = "tapOnPoint"
+	StepDragAndDrop        StepType = "dragAndDrop"
 	StepSwipe              StepType = "swipe"
 	StepScroll             StepType = "scroll"
 	StepScrollUntilVisible StepType = "scrollUntilVisible"
@@ -216,6 +217,26 @@ type TapOnPointStep struct {
 // `from:` YAML key (matching upstream Maestro syntax) or the historical
 // `selector:` key. Custom `UnmarshalYAML` handles the mapping — both keys
 // resolve to the same field, with `from:` taking precedence if both are set.
+// DragAndDropStep long-presses one element (or point) and drags it to another,
+// the way list-reorder and drag-handle UIs expect: press, hold until the item
+// lifts, move, settle, release.
+type DragAndDropStep struct {
+	BaseStep `yaml:",inline"`
+	From     Selector `yaml:"from"` // what to pick up — selector or point
+	To       Selector `yaml:"to"`   // where to drop it — selector or point
+	// HoldDuration is how long to press before moving (ms). Reorder UIs lift
+	// the item only after a long press, so the default is a full second.
+	HoldDuration int `yaml:"holdDuration"`
+	// Duration is how long the movement itself takes (ms). Drag targets track
+	// the finger, so moving too fast skips drop zones; default one second.
+	Duration int `yaml:"duration"`
+}
+
+// Describe returns a human-readable description of the drag step.
+func (s *DragAndDropStep) Describe() string {
+	return "dragAndDrop: " + s.From.DescribeQuoted() + " → " + s.To.DescribeQuoted()
+}
+
 type SwipeStep struct {
 	BaseStep              `yaml:",inline"`
 	Direction             string    `yaml:"direction"` // UP, DOWN, LEFT, RIGHT

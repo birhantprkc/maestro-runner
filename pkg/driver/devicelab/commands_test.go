@@ -171,36 +171,40 @@ func TestScrollUntilVisibleDefaultMaxScrolls(t *testing.T) {
 	}
 }
 
-// TestIsElementOnScreen covers the viewport-overlap guard used by
-// scrollUntilVisible to reject hierarchy-only matches.
-func TestIsElementOnScreen(t *testing.T) {
+// TestScrollStopCriterion covers scrollUntilVisible's stop check, which now
+// requires the flow's visibility percentage (default: fully inside the
+// viewport) rather than any 1px overlap — a match half-hidden at the screen
+// edge must keep scrolling.
+func TestScrollStopCriterion(t *testing.T) {
 	tests := []struct {
-		name   string
-		bounds core.Bounds
-		want   bool
+		name       string
+		bounds     core.Bounds
+		percentage int // 0 = flow didn't set one → fully visible required
+		want       bool
 	}{
-		{"fully on screen", core.Bounds{X: 100, Y: 100, Width: 200, Height: 200}, true},
-		{"partial overlap at bottom", core.Bounds{X: 100, Y: 2300, Width: 200, Height: 200}, true},
-		{"flush against right edge", core.Bounds{X: 1079, Y: 100, Width: 200, Height: 200}, true},
-		{"entirely below screen", core.Bounds{X: 100, Y: 2400, Width: 200, Height: 200}, false},
-		{"entirely above screen", core.Bounds{X: 100, Y: -300, Width: 200, Height: 200}, false},
-		{"entirely right of screen", core.Bounds{X: 1080, Y: 100, Width: 200, Height: 200}, false},
-		{"zero width", core.Bounds{X: 100, Y: 100, Width: 0, Height: 200}, false},
-		{"zero height", core.Bounds{X: 100, Y: 100, Width: 200, Height: 0}, false},
-		{"negative width", core.Bounds{X: 100, Y: 100, Width: -50, Height: 200}, false},
+		{"fully on screen", core.Bounds{X: 100, Y: 100, Width: 200, Height: 200}, 0, true},
+		// The old any-overlap check accepted these two — the #2411-class bug.
+		{"partial overlap at bottom", core.Bounds{X: 100, Y: 2300, Width: 200, Height: 200}, 0, false},
+		{"flush against right edge", core.Bounds{X: 1079, Y: 100, Width: 200, Height: 200}, 0, false},
+		{"partial overlap accepted at 50%", core.Bounds{X: 100, Y: 2300, Width: 200, Height: 200}, 50, true},
+		{"entirely below screen", core.Bounds{X: 100, Y: 2400, Width: 200, Height: 200}, 0, false},
+		{"entirely above screen", core.Bounds{X: 100, Y: -300, Width: 200, Height: 200}, 0, false},
+		{"entirely right of screen", core.Bounds{X: 1080, Y: 100, Width: 200, Height: 200}, 0, false},
+		{"zero width", core.Bounds{X: 100, Y: 100, Width: 0, Height: 200}, 0, false},
+		{"zero height", core.Bounds{X: 100, Y: 100, Width: 200, Height: 0}, 0, false},
+		{"negative width", core.Bounds{X: 100, Y: 100, Width: -50, Height: 200}, 0, false},
 		// Repro from the field: a clipped below-the-fold ScrollView button the
 		// agent reports with top>bottom (raw [270,2300][1080,2274] → h=-26,
 		// centre (675,2287)). Overlaps the viewport numerically, but is a
 		// degenerate rect tapOn refuses (boundsTappable's #94 guard); the scroll
 		// success predicate must reject it too so the loop keeps scrolling.
-		{"negative height (clipped below-fold)", core.Bounds{X: 270, Y: 2300, Width: 810, Height: -26}, false},
+		{"negative height (clipped below-fold)", core.Bounds{X: 270, Y: 2300, Width: 810, Height: -26}, 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			info := &core.ElementInfo{Bounds: tt.bounds}
-			if got := isElementOnScreen(info, 1080, 2400); got != tt.want {
-				t.Errorf("isElementOnScreen(%v) = %v, want %v", tt.bounds, got, tt.want)
+			if got := core.MeetsVisibility(tt.bounds, 1080, 2400, tt.percentage); got != tt.want {
+				t.Errorf("MeetsVisibility(%v, pct=%d) = %v, want %v", tt.bounds, tt.percentage, got, tt.want)
 			}
 		})
 	}

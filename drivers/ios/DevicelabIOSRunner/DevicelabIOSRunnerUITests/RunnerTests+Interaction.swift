@@ -1505,7 +1505,8 @@ extension RunnerTests {
     y: Double,
     x2: Double,
     y2: Double,
-    holdDuration: TimeInterval
+    holdDuration: TimeInterval,
+    moveDuration: TimeInterval? = nil
   ) -> RunnerInteractionOutcome {
     // tvOS has no coordinate drag. Preserve the direction as a focus move.
     let dx = x2 - x
@@ -1516,7 +1517,9 @@ extension RunnerTests {
     if pressTvRemote(button) {
       return .performed
     }
-    return performCoordinateDrag(app: app, x: x, y: y, x2: x2, y2: y2, holdDuration: holdDuration)
+    return performCoordinateDrag(
+      app: app, x: x, y: y, x2: x2, y2: y2,
+      holdDuration: holdDuration, moveDuration: moveDuration)
   }
 
   func keyboardAvoidingDragPoints(
@@ -1799,14 +1802,30 @@ extension RunnerTests {
     y: Double,
     x2: Double,
     y2: Double,
-    holdDuration: TimeInterval
+    holdDuration: TimeInterval,
+    moveDuration: TimeInterval? = nil
   ) -> RunnerInteractionOutcome {
 #if os(tvOS)
     return .unsupported("coordinate drag is not supported on tvOS")
 #else
     let start = interactionCoordinate(app: app, x: x, y: y)
     let end = interactionCoordinate(app: app, x: x2, y: y2)
-    start.press(forDuration: holdDuration, thenDragTo: end)
+    if let moveDuration, moveDuration > 0 {
+      // XCUITest exposes drag speed as velocity, so derive it from the
+      // requested movement time. The trailing hold lets the drop target
+      // register the finger before release — releasing mid-motion reads
+      // as a fling to reorder UIs.
+      let distance = (CGFloat(x2 - x) * CGFloat(x2 - x) + CGFloat(y2 - y) * CGFloat(y2 - y)).squareRoot()
+      let velocity = XCUIGestureVelocity(max(distance / CGFloat(moveDuration), 1))
+      start.press(
+        forDuration: holdDuration,
+        thenDragTo: end,
+        withVelocity: velocity,
+        thenHoldForDuration: 0.25
+      )
+    } else {
+      start.press(forDuration: holdDuration, thenDragTo: end)
+    }
     return .performed
 #endif
   }

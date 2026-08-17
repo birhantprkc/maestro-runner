@@ -42,6 +42,7 @@ type MockUIA2Client struct {
 	clickCalls          []struct{ X, Y int }
 	doubleClickCalls    []struct{ X, Y int }
 	longClickCalls      []struct{ X, Y, Duration int }
+	dragAndDropCalls    []struct{ FromX, FromY, ToX, ToY, HoldMs, MoveMs int }
 	scrollCalls         []uiautomator2.RectModel
 	scrollDirections    []string
 	swipeCalls          []uiautomator2.RectModel
@@ -107,6 +108,12 @@ func (m *MockUIA2Client) LongClick(x, y, durationMs int) error {
 
 func (m *MockUIA2Client) LongClickElement(elementID string, durationMs int) error {
 	return m.longClickErr
+}
+
+func (m *MockUIA2Client) DragAndDrop(fromX, fromY, toX, toY, holdMs, moveMs int) error {
+	m.dragAndDropCalls = append(m.dragAndDropCalls,
+		struct{ FromX, FromY, ToX, ToY, HoldMs, MoveMs int }{fromX, fromY, toX, toY, holdMs, moveMs})
+	return nil
 }
 
 func (m *MockUIA2Client) ScrollInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error {

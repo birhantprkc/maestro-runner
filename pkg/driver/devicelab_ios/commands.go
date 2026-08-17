@@ -28,7 +28,7 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 		*flow.InputTextStep, *flow.PressKeyStep, *flow.EraseTextStep,
 		*flow.BackStep, *flow.HideKeyboardStep,
 		*flow.SwipeStep, *flow.ScrollStep, *flow.ScrollUntilVisibleStep,
-		*flow.DoubleTapOnStep, *flow.LongPressOnStep:
+		*flow.DoubleTapOnStep, *flow.LongPressOnStep, *flow.DragAndDropStep:
 		d.invalidateSnapshotCache()
 	}
 	switch s := step.(type) {
@@ -40,6 +40,8 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 		return d.handleStopApp(s)
 	case *flow.TapOnStep:
 		return d.handleTapOn(s)
+	case *flow.TapOnPointStep:
+		return d.handleTapOnPoint(s)
 	case *flow.InputTextStep:
 		return d.handleInputText(s)
 	case *flow.AssertVisibleStep:
@@ -64,6 +66,8 @@ func (d *Driver) executeStep(step flow.Step) *core.CommandResult {
 		return d.handleHideKeyboard(s)
 	case *flow.SwipeStep:
 		return d.handleSwipe(s)
+	case *flow.DragAndDropStep:
+		return d.handleDragAndDrop(s)
 	case *flow.ScrollStep:
 		return d.handleScroll(s)
 	case *flow.ScrollUntilVisibleStep:
@@ -157,8 +161,15 @@ func (d *Driver) handleStopApp(s *flow.StopAppStep) *core.CommandResult {
 // `tap` command takes either selectorKey/selectorValue or x/y, and the
 // coordinate path is faster + avoids re-resolving on the runner side.
 func (d *Driver) handleTapOn(s *flow.TapOnStep) *core.CommandResult {
-	if s.Point != "" {
-		return core.ErrorResult(fmt.Errorf("tapOn with point not yet implemented"), "point-tap unsupported")
+	// Bare point (no selector): tap screen coordinates. A point WITH a
+	// selector is element-relative and resolves in the snapshot path below.
+	if s.Point != "" && s.Selector.IsEmpty() {
+		w, h := d.screenDims()
+		x, y, err := core.ParsePointCoords(s.Point, w, h)
+		if err != nil {
+			return core.ErrorResult(err, "tapOn: "+err.Error())
+		}
+		return d.tapAtPoint(float64(x), float64(y))
 	}
 
 	// Fast path: for simple id-or-text selectors, ask the runner to find
@@ -188,7 +199,10 @@ func (d *Driver) handleTapOn(s *flow.TapOnStep) *core.CommandResult {
 	if node == nil {
 		return core.ErrorResult(fmt.Errorf("element not found"), "element not found")
 	}
-	cx, cy := centerOf(node)
+	cx, cy, perr := pointOf(node, s.Point)
+	if perr != nil {
+		return core.ErrorResult(perr, "tapOn: "+perr.Error())
+	}
 	ctx, cancel := d.callTimeout()
 	defer cancel()
 	if _, err := d.client.Call(ctx, Command{
@@ -213,6 +227,47 @@ func (d *Driver) handleTapOn(s *flow.TapOnStep) *core.CommandResult {
 	d.lastTappedX, d.lastTappedY = cx, cy
 	d.lastTapHasCoords = true
 	return core.SuccessResult("tapped", toElementInfo(node))
+}
+
+// tapAtPoint taps raw screen coordinates via the runner and records them for
+// a following inputText, the same way an element tap does.
+func (d *Driver) tapAtPoint(x, y float64) *core.CommandResult {
+	ctx, cancel := d.callTimeout()
+	defer cancel()
+	if _, err := d.client.Call(ctx, Command{
+		Command:     CmdTap,
+		AppBundleID: d.appID,
+		X:           ptrFloat(x),
+		Y:           ptrFloat(y),
+	}); err != nil {
+		return core.ErrorResult(err, "tap failed: "+err.Error())
+	}
+	d.lastTappedIdentifier = ""
+	d.lastTappedText = ""
+	d.lastTappedX, d.lastTappedY = x, y
+	d.lastTapHasCoords = true
+	return core.SuccessResult(fmt.Sprintf("tapped at (%.0f, %.0f)", x, y), nil)
+}
+
+// handleTapOnPoint taps explicit coordinates — x/y, or a percentage/absolute
+// point string. This is also how the Flutter VM fallback delivers its taps,
+// so it must exist for Flutter apps to be drivable on this driver at all.
+func (d *Driver) handleTapOnPoint(s *flow.TapOnPointStep) *core.CommandResult {
+	if s.LongPress || s.DurationMs > 0 {
+		return core.ErrorResult(
+			fmt.Errorf("tapOnPoint longPress is not supported on the devicelab iOS driver yet — use longPressOn with a selector"),
+			"tapOnPoint longPress unsupported")
+	}
+	x, y := float64(s.X), float64(s.Y)
+	if s.Point != "" {
+		w, h := d.screenDims()
+		px, py, err := core.ParsePointCoords(s.Point, w, h)
+		if err != nil {
+			return core.ErrorResult(err, "tapOnPoint: "+err.Error())
+		}
+		x, y = float64(px), float64(py)
+	}
+	return d.tapAtPoint(x, y)
 }
 
 // handleInputText routes text through the runner's `type` command. When the
@@ -563,6 +618,62 @@ func (d *Driver) handleSwipe(s *flow.SwipeStep) *core.CommandResult {
 	return core.SuccessResult("swiped", nil)
 }
 
+// handleDragAndDrop long-presses the source and drags it to the target — the
+// runner executes XCUITest's press-then-drag, which is what reorder UIs need
+// to lift an item. DurationMs carries the hold, MoveDurationMs the movement.
+func (d *Driver) handleDragAndDrop(s *flow.DragAndDropStep) *core.CommandResult {
+	fromX, fromY, err := d.resolveDragEndpoint(s.From, s.IsOptional(), s.TimeoutMs)
+	if err != nil {
+		return core.ErrorResult(err, "dragAndDrop from: "+err.Error())
+	}
+	toX, toY, err := d.resolveDragEndpoint(s.To, s.IsOptional(), s.TimeoutMs)
+	if err != nil {
+		return core.ErrorResult(err, "dragAndDrop to: "+err.Error())
+	}
+
+	holdMs := float64(s.HoldDuration)
+	moveMs := float64(s.Duration)
+	ctx, cancel := d.callTimeout()
+	defer cancel()
+	if _, err := d.client.Call(ctx, Command{
+		Command:        CmdDrag,
+		AppBundleID:    d.appID,
+		X:              ptrFloat(fromX),
+		Y:              ptrFloat(fromY),
+		X2:             ptrFloat(toX),
+		Y2:             ptrFloat(toY),
+		DurationMs:     &holdMs,
+		MoveDurationMs: &moveMs,
+	}); err != nil {
+		return core.ErrorResult(err, "dragAndDrop failed: "+err.Error())
+	}
+	return core.SuccessResult(
+		fmt.Sprintf("dragged (%.0f, %.0f) → (%.0f, %.0f)", fromX, fromY, toX, toY), nil)
+}
+
+// resolveDragEndpoint turns a drag endpoint into screen coordinates: an
+// explicit point ("x%, y%" or absolute "x, y") wins, otherwise the selector
+// is resolved and its center used.
+func (d *Driver) resolveDragEndpoint(sel flow.Selector, optional bool, timeoutMs int) (float64, float64, error) {
+	if sel.IsEmpty() && sel.Point != "" {
+		w, h := d.screenDims()
+		x, y, err := core.ParsePointCoords(sel.Point, w, h)
+		if err != nil {
+			return 0, 0, err
+		}
+		return float64(x), float64(y), nil
+	}
+	node, err := d.findElement(sel, optional, timeoutMs)
+	if err != nil {
+		return 0, 0, err
+	}
+	if node == nil {
+		return 0, 0, fmt.Errorf("element not found: %s", describeSelector(sel))
+	}
+	// A point on a selector is element-relative, same as tapOn.
+	return pointOf(node, sel.Point)
+}
+
 // handleScroll converts maestro's ScrollStep to a swipe in the opposite
 // direction (Maestro: "scroll down" = reveal bottom content = swipe up).
 func (d *Driver) handleScroll(s *flow.ScrollStep) *core.CommandResult {
@@ -591,16 +702,24 @@ func (d *Driver) handleScroll(s *flow.ScrollStep) *core.CommandResult {
 		return core.ErrorResult(fmt.Errorf("invalid direction: %s", s.Direction), "invalid scroll direction")
 	}
 	durationMs := 300.0
+	// moveDurationMs routes the drag through the runner's velocity path, which
+	// holds still 250ms before lifting. Without it, XCUITest's press-then-drag
+	// releases mid-motion and the list keeps decelerating — and iOS spends the
+	// NEXT tap stopping that scroll instead of activating anything, so a
+	// tap-after-scroll silently no-ops (the Android drivers learned the same
+	// lesson; their agent swipes hold still too).
+	moveDurationMs := 300.0
 	ctx, cancel := d.callTimeout()
 	defer cancel()
 	if _, err := d.client.Call(ctx, Command{
-		Command:     CmdDrag,
-		AppBundleID: d.appID,
-		X:           ptrFloat(fromX),
-		Y:           ptrFloat(fromY),
-		X2:          ptrFloat(toX),
-		Y2:          ptrFloat(toY),
-		DurationMs:  &durationMs,
+		Command:        CmdDrag,
+		AppBundleID:    d.appID,
+		X:              ptrFloat(fromX),
+		Y:              ptrFloat(fromY),
+		X2:             ptrFloat(toX),
+		Y2:             ptrFloat(toY),
+		DurationMs:     &durationMs,
+		MoveDurationMs: &moveDurationMs,
 	}); err != nil {
 		return core.ErrorResult(err, "scroll failed: "+err.Error())
 	}
@@ -623,10 +742,38 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 		timeout = time.Duration(s.TimeoutMs) * time.Millisecond
 	}
 	deadline := time.Now().Add(timeout)
+	// prevRect detects clipped frames the geometry check cannot: iOS reports
+	// some frames (Flutter semantics especially) pre-clipped to the viewport,
+	// so a 12pt sliver of an 80pt row at the screen edge reads as "fully
+	// visible" — and the tap that follows lands in the edge zone and no-ops.
+	// When the matched rect is flush against a screen edge, one more scroll
+	// disambiguates: a clipped row grows or moves, a genuinely edge-hugging
+	// element stays put and is accepted.
+	var prevRect *SnapshotRect
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		node, err := d.findElement(s.Element, true, 1000)
 		if err == nil && node != nil && isDisplayed(node) {
-			return core.SuccessResult("element found after scrolling", toElementInfo(node))
+			// A found element is not necessarily a visible one: a ScrollView
+			// item keeps a real frame while sitting below the fold, and a
+			// half-covered element is exactly what the following tap would
+			// mis-hit. Keep scrolling until enough of it is on screen —
+			// unless the screen size is unknown, where the old behavior is
+			// the only option.
+			w, h := d.screenDims()
+			if w == 0 || h == 0 || core.MeetsVisibility(snapshotBounds(node), w, h, s.VisibilityPercentage) {
+				// The flush check enforces only the default fully-visible
+				// contract — an explicit visibilityPercentage is the flow
+				// accepting partial visibility, clipped frames included.
+				explicitThreshold := s.VisibilityPercentage >= 1 && s.VisibilityPercentage < 100
+				suspicious := !explicitThreshold && w > 0 && h > 0 &&
+					rectFlushWithIncomingEdge(node.Rect, direction, w, h)
+				stable := prevRect != nil && *prevRect == node.Rect
+				if !suspicious || stable {
+					return core.SuccessResult("element found after scrolling", toElementInfo(node))
+				}
+				r := node.Rect
+				prevRect = &r
+			}
 		}
 		result := d.handleScroll(&flow.ScrollStep{Direction: direction})
 		if !result.Success {
@@ -1231,6 +1378,35 @@ func (d *Driver) hierarchyJSON() ([]byte, error) {
 
 func centerOf(n *SnapshotNode) (float64, float64) {
 	return n.Rect.X + n.Rect.Width/2, n.Rect.Y + n.Rect.Height/2
+}
+
+// snapshotBounds converts a node's rect to core.Bounds for visibility math.
+// rectFlushWithIncomingEdge reports whether the rect is flush against the
+// screen edge new content scrolls in from — the geometry a pre-clipped frame
+// produces there. Only that edge matters: full-width rows legitimately touch
+// the sides, and content scrolled past hugs the opposite edge on its way out.
+// Within one point, since frames arrive as floats.
+func rectFlushWithIncomingEdge(r SnapshotRect, direction string, screenW, screenH int) bool {
+	const eps = 1.0
+	switch direction {
+	case "up": // scrolling up reveals content at the top
+		return r.Y <= eps
+	case "left":
+		return r.X <= eps
+	case "right":
+		return r.X+r.Width >= float64(screenW)-eps
+	default: // "down" and anything unrecognized
+		return r.Y+r.Height >= float64(screenH)-eps
+	}
+}
+
+func snapshotBounds(n *SnapshotNode) core.Bounds {
+	return core.Bounds{
+		X:      int(n.Rect.X),
+		Y:      int(n.Rect.Y),
+		Width:  int(n.Rect.Width),
+		Height: int(n.Rect.Height),
+	}
 }
 
 // pointOf resolves a `point:` inside n, falling back to its centre when unset.

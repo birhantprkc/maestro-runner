@@ -103,6 +103,48 @@ func (d *Driver) tapOnPointWithCoords(point string) *core.CommandResult {
 	return successResult(fmt.Sprintf("Tapped at (%d, %d)", x, y), nil)
 }
 
+func (d *Driver) dragAndDrop(step *flow.DragAndDropStep) *core.CommandResult {
+	fromX, fromY, info, err := d.resolveGesturePoint(step.From, step.IsOptional(), step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop: from: %v", err))
+	}
+	toX, toY, _, err := d.resolveGesturePoint(step.To, step.IsOptional(), step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop: to: %v", err))
+	}
+
+	if err := d.client.DragAndDrop(fromX, fromY, toX, toY, step.HoldDuration, step.Duration); err != nil {
+		return errorResult(err, fmt.Sprintf("Failed to drag: %v", err))
+	}
+	return successResult(fmt.Sprintf("Dragged from (%d, %d) to (%d, %d)", fromX, fromY, toX, toY), info)
+}
+
+// resolveGesturePoint turns a drag endpoint — a bare point, a selector, or a
+// selector plus a point inside it — into screen coordinates. The same
+// percentage/absolute rules as tapOn apply: a bare point is relative to the
+// screen, a point on a selector is relative to the matched element's bounds,
+// and a selector alone resolves to the element's center.
+func (d *Driver) resolveGesturePoint(sel flow.Selector, optional bool, stepTimeoutMs int) (int, int, *core.ElementInfo, error) {
+	if sel.IsEmpty() {
+		width, height, err := d.screenSize()
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		x, y, err := core.ParsePointCoords(sel.Point, width, height)
+		return x, y, nil, err
+	}
+
+	_, info, err := d.findElementForTap(sel, optional, stepTimeoutMs)
+	if err != nil {
+		return 0, 0, nil, d.notFoundOrCrash(err)
+	}
+	if info == nil {
+		return 0, 0, nil, fmt.Errorf("nil element info")
+	}
+	x, y, err := core.PointInBounds(sel.Point, info.Bounds)
+	return x, y, info, err
+}
+
 func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 	wasInput := d.consumeInputFlag()
 
@@ -578,10 +620,11 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 		_, info, err := d.findElement(step.Element, true, 1000)
 		if err == nil && info != nil {
 			// UIAutomator's view hierarchy can include items in a ScrollView
-			// that are off-screen. Confirm the element actually overlaps the
-			// viewport before declaring success, otherwise scrollUntilVisible
-			// can short-circuit without ever scrolling.
-			if isElementOnScreen(info, width, height) {
+			// that are off-screen — and a match half-hidden behind a bottom
+			// bar is no better, because the tap that follows lands wrong.
+			// Stop only when the element meets the flow's visibility
+			// requirement (default: fully inside the viewport).
+			if core.MeetsVisibility(info.Bounds, width, height, step.VisibilityPercentage) {
 				return successResult(fmt.Sprintf("Element found after %d scrolls", i), info)
 			}
 		} else if err != nil && !isElementNotFoundError(err) {
@@ -652,18 +695,6 @@ func (d *Driver) scrollByAdb(direction string, screenWidth, screenHeight int, pe
 	cmd := fmt.Sprintf("input swipe %d %d %d %d %d", fromX, fromY, toX, toY, scrollDurationMs)
 	_, err := d.device.Shell(cmd)
 	return err
-}
-
-// isElementOnScreen reports whether an element's bounds overlap the visible
-// viewport. Malformed bounds (non-positive width/height — e.g. a clipped rect
-// with top>bottom) count as off-screen, so scrollUntilVisible keeps scrolling
-// instead of declaring success on a degenerate rect.
-func isElementOnScreen(info *core.ElementInfo, screenWidth, screenHeight int) bool {
-	b := info.Bounds
-	if b.Width <= 0 || b.Height <= 0 {
-		return false
-	}
-	return b.X+b.Width > 0 && b.X < screenWidth && b.Y+b.Height > 0 && b.Y < screenHeight
 }
 
 // isElementNotFoundError distinguishes expected "not on screen yet" lookups

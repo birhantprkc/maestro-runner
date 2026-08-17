@@ -582,6 +582,7 @@ extension RunnerTests {
         return Response(ok: false, error: ErrorPayload(message: "drag requires x, y, x2, and y2"))
       }
       let holdDuration = min(max((command.durationMs ?? 60) / 1000.0, 0.016), 10.0)
+      let moveDuration = command.moveDurationMs.map { min(max($0 / 1000.0, 0.05), 30.0) }
       let dragPoints = keyboardAvoidingDragPoints(app: activeApp, x: x, y: y, x2: x2, y2: y2)
       let dragFrame = resolvedDragVisualizationFrame(
         app: activeApp,
@@ -599,7 +600,8 @@ extension RunnerTests {
             y: dragPoints.y,
             x2: dragPoints.x2,
             y2: dragPoints.y2,
-            holdDuration: holdDuration
+            holdDuration: holdDuration,
+            moveDuration: moveDuration
           )
         }
       }

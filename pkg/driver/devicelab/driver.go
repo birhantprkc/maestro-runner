@@ -487,6 +487,8 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.longPressOn(s)
 	case *flow.TapOnPointStep:
 		result = d.tapOnPoint(s)
+	case *flow.DragAndDropStep:
+		result = d.dragAndDrop(s)
 
 	// Assert commands
 	case *flow.AssertVisibleStep:

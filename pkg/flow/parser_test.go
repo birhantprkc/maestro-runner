@@ -2306,3 +2306,43 @@ func TestAssertVisibleStep_DescribeWithCount(t *testing.T) {
 		t.Errorf("Describe() = %q, want it to mention the count", got)
 	}
 }
+
+func TestParse_DragAndDrop(t *testing.T) {
+	yaml := `
+- dragAndDrop:
+    from:
+      id: item-3
+    to:
+      point: "50%, 20%"
+    holdDuration: 800
+`
+	parsed, err := Parse([]byte(yaml), "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	s, ok := parsed.Steps[0].(*DragAndDropStep)
+	if !ok {
+		t.Fatalf("expected DragAndDropStep, got %T", parsed.Steps[0])
+	}
+	if s.From.ID != "item-3" || s.To.Point != "50%, 20%" {
+		t.Errorf("from/to = %v / %v", s.From, s.To)
+	}
+	if s.HoldDuration != 800 {
+		t.Errorf("HoldDuration = %d, want 800", s.HoldDuration)
+	}
+	if s.Duration != 1000 {
+		t.Errorf("Duration default = %d, want 1000", s.Duration)
+	}
+}
+
+func TestParse_DragAndDrop_RequiresFromAndTo(t *testing.T) {
+	for name, yaml := range map[string]string{
+		"missing to":   "- dragAndDrop: {from: {id: a}}",
+		"missing from": "- dragAndDrop: {to: {id: b}}",
+		"empty":        "- dragAndDrop: {}",
+	} {
+		if _, err := Parse([]byte(yaml), "test.yaml"); err == nil {
+			t.Errorf("%s: expected a parse error", name)
+		}
+	}
+}

@@ -81,6 +81,11 @@ struct Command: Codable {
   let x2: Double?
   let y2: Double?
   let durationMs: Double?
+  // moveDurationMs — local extension for drag: how long the movement itself
+  // takes (durationMs is the press-before-move hold). Absent = XCUITest's
+  // default drag velocity, which keeps the pre-existing swipe/scroll wire
+  // shape byte-for-byte compatible.
+  let moveDurationMs: Double?
   let direction: String?
   let orientation: String?
   let scale: Double?

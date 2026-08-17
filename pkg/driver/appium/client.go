@@ -490,6 +490,32 @@ func (c *Client) LongPress(x, y, durationMs int) error {
 	})
 }
 
+// DragAndDrop long-presses at the start point, drags to the end point in
+// interpolated moves, settles, and releases. The interpolation matters: drop
+// targets track the pointer, and a single jump from start to end skips every
+// zone in between.
+func (c *Client) DragAndDrop(fromX, fromY, toX, toY, holdMs, moveMs int) error {
+	actions := []map[string]interface{}{
+		{"type": "pointerMove", "duration": 0, "x": fromX, "y": fromY},
+		{"type": "pointerDown", "button": 0},
+		{"type": "pause", "duration": holdMs},
+	}
+	const steps = 20
+	for i := 1; i <= steps; i++ {
+		actions = append(actions, map[string]interface{}{
+			"type":     "pointerMove",
+			"duration": moveMs / steps,
+			"x":        fromX + (toX-fromX)*i/steps,
+			"y":        fromY + (toY-fromY)*i/steps,
+		})
+	}
+	actions = append(actions,
+		map[string]interface{}{"type": "pause", "duration": 250},
+		map[string]interface{}{"type": "pointerUp", "button": 0},
+	)
+	return c.performTouchAction(actions)
+}
+
 // Swipe performs a swipe gesture.
 func (c *Client) Swipe(startX, startY, endX, endY, durationMs int) error {
 	return c.performTouchAction([]map[string]interface{}{

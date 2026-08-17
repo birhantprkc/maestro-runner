@@ -291,6 +291,44 @@ func (d *Driver) scroll(step *flow.ScrollStep) *core.CommandResult {
 	return successResult(fmt.Sprintf("Scrolled %s", direction), nil)
 }
 
+// resolveDragPoint turns one end of a dragAndDrop into screen coordinates:
+// a bare point resolves against the screen, anything else finds the element
+// and uses its center.
+func (d *Driver) resolveDragPoint(sel flow.Selector, timeout time.Duration) (int, int, *core.ElementInfo, error) {
+	if sel.Point != "" && sel.IsEmpty() {
+		w, h := d.client.ScreenSize()
+		x, y, err := core.ParsePointCoords(sel.Point, w, h)
+		return x, y, nil, err
+	}
+	info, err := d.findElement(sel, timeout)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("element not found: %s: %w", sel.Describe(), err)
+	}
+	x, y := info.Bounds.Center()
+	return x, y, info, nil
+}
+
+func (d *Driver) dragAndDrop(step *flow.DragAndDropStep) *core.CommandResult {
+	timeout := time.Duration(step.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = d.getFindTimeout()
+	}
+
+	fromX, fromY, fromInfo, err := d.resolveDragPoint(step.From, timeout)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop from: %v", err))
+	}
+	toX, toY, _, err := d.resolveDragPoint(step.To, timeout)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop to: %v", err))
+	}
+
+	if err := d.client.DragAndDrop(fromX, fromY, toX, toY, step.HoldDuration, step.Duration); err != nil {
+		return errorResult(err, "Failed to drag and drop")
+	}
+	return successResult(fmt.Sprintf("Dragged (%d, %d) → (%d, %d)", fromX, fromY, toX, toY), fromInfo)
+}
+
 func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.CommandResult {
 	direction := strings.ToLower(step.Direction)
 	if direction == "" {
@@ -308,15 +346,25 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 		maxScrolls = step.MaxScrolls
 	}
 
+	partiallyVisible := false
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		if err := d.parentContext().Err(); err != nil {
 			return errorResult(fmt.Errorf("scroll cancelled: %w", err), "")
 		}
 
-		// Check if element is visible
+		// Found in the tree is not enough: an element half-hidden behind a bar
+		// or peeking over the fold would stop the scroll and the next tap
+		// lands wrong. Require the visibility fraction the step asks for
+		// (default: fully on screen). Elements without usable bounds keep the
+		// old found-is-enough behavior — there is nothing to measure.
 		info, err := d.findElement(step.Element, 1*time.Second)
 		if err == nil && info != nil {
-			return successResult("Element found", info)
+			w, h := d.client.ScreenSize()
+			boundsKnown := info.Bounds.Width > 0 && info.Bounds.Height > 0 && w > 0 && h > 0
+			if !boundsKnown || core.MeetsVisibility(info.Bounds, w, h, step.VisibilityPercentage) {
+				return successResult("Element found", info)
+			}
+			partiallyVisible = true
 		}
 
 		// Scroll
@@ -324,6 +372,9 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 		time.Sleep(300 * time.Millisecond)
 	}
 
+	if partiallyVisible {
+		return errorResult(fmt.Errorf("element found but never sufficiently visible after scrolling"), "")
+	}
 	return errorResult(fmt.Errorf("element not found after scrolling"), "")
 }
 

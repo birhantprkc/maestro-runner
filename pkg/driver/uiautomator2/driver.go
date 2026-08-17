@@ -41,6 +41,7 @@ type UIA2Client interface {
 	LongClickElement(elementID string, durationMs int) error
 	ScrollInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error
 	SwipeInArea(area uiautomator2.RectModel, direction string, percent float64, speed int) error
+	DragAndDrop(fromX, fromY, toX, toY, holdMs, moveMs int) error
 
 	// Navigation
 	Back() error
@@ -158,6 +159,8 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 		result = d.longPressOn(s)
 	case *flow.TapOnPointStep:
 		result = d.tapOnPoint(s)
+	case *flow.DragAndDropStep:
+		result = d.dragAndDrop(s)
 
 	// Assert commands
 	case *flow.AssertVisibleStep:

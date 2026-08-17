@@ -100,6 +100,63 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 	return successResult("Tapped element", info)
 }
 
+// dragAndDrop long-presses the from-target, then drags it onto the to-target.
+// The hold is what makes reorder UIs lift the item; XCUITest paces the move
+// itself, so the step's Duration (move time) has no effect on this driver.
+func (d *Driver) dragAndDrop(step *flow.DragAndDropStep) *core.CommandResult {
+	fromX, fromY, fromInfo, err := d.resolveDragPoint(step.From, step.IsOptional(), step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop: from target not resolved: %v", err))
+	}
+	toX, toY, _, err := d.resolveDragPoint(step.To, step.IsOptional(), step.TimeoutMs)
+	if err != nil {
+		return errorResult(err, fmt.Sprintf("dragAndDrop: to target not resolved: %v", err))
+	}
+
+	holdSec := float64(step.HoldDuration) / 1000.0
+	if holdSec <= 0 {
+		holdSec = 1.0
+	}
+	if err := d.client.DragFromTo(fromX, fromY, toX, toY, holdSec); err != nil {
+		return errorResult(err, "Drag failed")
+	}
+	return successResult(fmt.Sprintf("Dragged (%.0f, %.0f) → (%.0f, %.0f)", fromX, fromY, toX, toY), fromInfo)
+}
+
+// resolveDragPoint turns a drag endpoint into screen coordinates: a bare
+// point resolves against the screen, a selector resolves to its center, and
+// a selector with a point resolves the point within the element's bounds —
+// the same rules tapOn applies.
+func (d *Driver) resolveDragPoint(sel flow.Selector, optional bool, timeoutMs int) (float64, float64, *core.ElementInfo, error) {
+	if sel.IsEmpty() {
+		if sel.Point == "" {
+			return 0, 0, nil, fmt.Errorf("a selector or point is required")
+		}
+		w, h, err := d.screenSize()
+		if err != nil {
+			return 0, 0, nil, fmt.Errorf("screen size unavailable for point %q: %w", sel.Point, err)
+		}
+		x, y, err := core.ParsePointCoords(sel.Point, w, h)
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		return float64(x), float64(y), nil, nil
+	}
+
+	info, err := d.findElementForTap(sel, optional, timeoutMs)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	if sel.Point != "" && info.Bounds.Width > 0 {
+		px, py, perr := core.ParsePointCoords(sel.Point, info.Bounds.Width, info.Bounds.Height)
+		if perr != nil {
+			return 0, 0, nil, perr
+		}
+		return float64(info.Bounds.X + px), float64(info.Bounds.Y + py), info, nil
+	}
+	return float64(info.Bounds.X + info.Bounds.Width/2), float64(info.Bounds.Y + info.Bounds.Height/2), info, nil
+}
+
 // tapOnPointWithCoords handles point-based tap with either percentage ("85%, 50%") or absolute ("123, 456") coordinates.
 func (d *Driver) tapOnPointWithCoords(point string) *core.CommandResult {
 	width, height, err := d.screenSize()
@@ -639,7 +696,14 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		info, err := d.findElement(step.Element, true, 1000)
 		if err == nil && info != nil {
-			return successResult("Element found after scrolling", info)
+			// Found in the tree is not enough: an element half-hidden behind
+			// the fold satisfies a bare find, and the tap that follows lands
+			// wrong. Keep scrolling until enough of it is actually on screen.
+			// With no screen size to compare against, accept the find as before.
+			w, h, sizeErr := d.screenSize()
+			if sizeErr != nil || core.MeetsVisibility(info.Bounds, w, h, step.VisibilityPercentage) {
+				return successResult("Element found after scrolling", info)
+			}
 		}
 
 		// Scroll

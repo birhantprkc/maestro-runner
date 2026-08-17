@@ -196,6 +196,21 @@ func (c *Client) Swipe(fromX, fromY, toX, toY float64, durationSec float64) erro
 	return err
 }
 
+// DragFromTo presses at the start point, holds, then drags to the end point.
+// The endpoint maps to XCUITest's press(forDuration:thenDragTo:), so
+// pressDurationSec is the hold before the move — the lift gesture reorder UIs
+// wait for. XCUITest paces the move itself; the drag speed is not ours to set.
+func (c *Client) DragFromTo(fromX, fromY, toX, toY, pressDurationSec float64) error {
+	_, err := c.post(c.sessionPath("/wda/dragfromtoforduration"), map[string]interface{}{
+		"fromX":    fromX,
+		"fromY":    fromY,
+		"toX":      toX,
+		"toY":      toY,
+		"duration": pressDurationSec,
+	})
+	return err
+}
+
 // Input
 
 // SendKeys types text. If frequency > 0, it overrides the session typing speed (keys/sec).
