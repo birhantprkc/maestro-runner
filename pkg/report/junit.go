@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -145,6 +146,21 @@ func buildTestCase(entry *FlowEntry, detail *FlowDetail, index *Index) string {
 			))
 		}
 	}
+	// Custom flow properties (`properties:` in the flow config, #84) — sorted
+	// so the XML is stable across runs.
+	if detail != nil && len(detail.Properties) > 0 {
+		keys := make([]string, 0, len(detail.Properties))
+		for k := range detail.Properties {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			b.WriteString(fmt.Sprintf(
+				`        <property name="%s" value="%s"/>`+"\n",
+				xmlEscape(k), xmlEscape(detail.Properties[k]),
+			))
+		}
+	}
 	b.WriteString("      </properties>\n")
 
 	// Status-specific elements
@@ -165,8 +181,39 @@ func buildTestCase(entry *FlowEntry, detail *FlowDetail, index *Index) string {
 		b.WriteString("      <skipped/>\n")
 	}
 
+	// Attachments via the [[ATTACHMENT|path]] convention (Jenkins JUnit
+	// Attachments and compatible CI tooling). Paths are relative to the
+	// report directory, which is where junit-report.xml itself lives.
+	if atts := junitAttachments(entry, detail); len(atts) > 0 {
+		b.WriteString("      <system-out>")
+		for _, a := range atts {
+			b.WriteString(fmt.Sprintf("[[ATTACHMENT|%s]]", xmlEscape(a)))
+		}
+		b.WriteString("</system-out>\n")
+	}
+
 	b.WriteString("    </testcase>\n")
 	return b.String()
+}
+
+// junitAttachments gathers report-relative artifact paths worth surfacing in
+// CI: the failing step's screenshot (failed flows only — a green run's
+// screenshots are noise there) and the flow's screen recording when --record
+// produced one.
+func junitAttachments(entry *FlowEntry, detail *FlowDetail) []string {
+	if detail == nil {
+		return nil
+	}
+	var atts []string
+	if entry.Status == StatusFailed {
+		if cmd := findFailedCommand(detail.Commands); cmd != nil && cmd.Artifacts.ScreenshotAfter != "" {
+			atts = append(atts, cmd.Artifacts.ScreenshotAfter)
+		}
+	}
+	if detail.Artifacts.Video != "" {
+		atts = append(atts, detail.Artifacts.Video)
+	}
+	return atts
 }
 
 // resolveDevice returns the device for a flow entry, falling back to the index-level device.

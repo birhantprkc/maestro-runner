@@ -738,3 +738,53 @@ func TestBuildJUnitXMLNoEndTime(t *testing.T) {
 		t.Errorf("expected time=0.000 when no end time\nGot:\n%s", xml)
 	}
 }
+
+func TestJUnit_CustomPropertiesAndAttachments(t *testing.T) {
+	errMsg := "boom"
+	dur := int64(1200)
+	index := &Index{
+		StartTime: time.Now(),
+		Summary:   Summary{Total: 2, Failed: 1},
+		Device:    Device{Name: "Pixel", ID: "abc", Platform: "android"},
+		Flows: []FlowEntry{
+			{Name: "green", SourceFile: "a.yaml", Status: StatusPassed, Duration: &dur},
+			{Name: "red", SourceFile: "b.yaml", Status: StatusFailed, Duration: &dur, Error: &errMsg},
+		},
+	}
+	flows := []FlowDetail{
+		{
+			Name:       "green",
+			Properties: map[string]string{"testID": "Test-1234", "component": "auth"},
+			Artifacts:  FlowArtifacts{Video: "assets/flow-000/recording.mp4"},
+		},
+		{
+			Name: "red",
+			Commands: []Command{{
+				Type:      "tapOn",
+				Status:    StatusFailed,
+				Artifacts: CommandArtifacts{ScreenshotAfter: "assets/flow-001/cmd-000-after.png"},
+			}},
+		},
+	}
+
+	xml := buildJUnitXML(index, flows)
+
+	for _, want := range []string{
+		`<property name="testID" value="Test-1234"/>`,
+		`<property name="component" value="auth"/>`,
+		`[[ATTACHMENT|assets/flow-000/recording.mp4]]`,
+		`[[ATTACHMENT|assets/flow-001/cmd-000-after.png]]`,
+	} {
+		if !strings.Contains(xml, want) {
+			t.Errorf("missing %q in:\n%s", want, xml)
+		}
+	}
+	// Custom keys sorted: component before testID
+	if strings.Index(xml, "component") > strings.Index(xml, "testID") {
+		t.Error("custom properties should be emitted in sorted key order")
+	}
+	// A passing flow must not attach step screenshots
+	if strings.Count(xml, "[[ATTACHMENT|") != 2 {
+		t.Errorf("expected exactly 2 attachments, got:\n%s", xml)
+	}
+}

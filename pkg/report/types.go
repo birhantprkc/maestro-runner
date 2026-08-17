@@ -172,18 +172,21 @@ type AttemptEntry struct {
 
 // FlowDetail contains full flow execution details.
 type FlowDetail struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	SourceFile  string        `json:"sourceFile"`
-	Tags        []string      `json:"tags,omitempty"`
-	Device      *Device       `json:"device,omitempty"` // Device that ran this flow (for multi-device runs)
-	StartTime   time.Time     `json:"startTime"`
-	EndTime     *time.Time    `json:"endTime,omitempty"`
-	Duration    *int64        `json:"duration,omitempty"` // milliseconds
-	Commands    []Command     `json:"commands"`
-	StepLatency *StepLatency  `json:"stepLatency,omitempty"` // p50/p95/max over this flow's commands
-	Artifacts   FlowArtifacts `json:"artifacts"`
-	ConsoleLogs []ConsoleLog  `json:"consoleLogs,omitempty"` // Browser console / page errors captured during the flow (web only)
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	SourceFile string   `json:"sourceFile"`
+	Tags       []string `json:"tags,omitempty"`
+	// Properties are the flow's custom `properties:` map, emitted as JUnit
+	// testcase properties so flows can carry test-tracking ids into CI.
+	Properties  map[string]string `json:"properties,omitempty"`
+	Device      *Device           `json:"device,omitempty"` // Device that ran this flow (for multi-device runs)
+	StartTime   time.Time         `json:"startTime"`
+	EndTime     *time.Time        `json:"endTime,omitempty"`
+	Duration    *int64            `json:"duration,omitempty"` // milliseconds
+	Commands    []Command         `json:"commands"`
+	StepLatency *StepLatency      `json:"stepLatency,omitempty"` // p50/p95/max over this flow's commands
+	Artifacts   FlowArtifacts     `json:"artifacts"`
+	ConsoleLogs []ConsoleLog      `json:"consoleLogs,omitempty"` // Browser console / page errors captured during the flow (web only)
 }
 
 // ConsoleLog represents a single browser console message or uncaught JS
