@@ -224,7 +224,16 @@ func (fr *FlowRunner) Run() FlowResult {
 		}
 	}
 
+	// Pause between top-level steps (--step-delay / flow stepDelay, flow wins).
+	stepDelay := fr.config.StepDelay
+	if fr.flow.Config.StepDelay != nil {
+		stepDelay = *fr.flow.Config.StepDelay
+	}
+
 	for i, step := range fr.flow.Steps {
+		if i > 0 && stepDelay > 0 {
+			time.Sleep(time.Duration(stepDelay) * time.Millisecond)
+		}
 		// Check context cancellation
 		if fr.ctx.Err() != nil {
 			fr.flowWriter.SkipRemainingCommands(i)

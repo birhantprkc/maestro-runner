@@ -56,6 +56,9 @@ type RunnerConfig struct {
 	WaitForIdleTimeout int // Global wait for idle timeout in ms
 	TypingFrequency    int // Global WDA typing frequency in keys/sec (0 = WDA default)
 	ConditionTimeout   int // Default timeout (ms) for when:/while: condition checks (0 = engine default)
+	// StepDelay pauses between top-level steps (ms). Flow config overrides it.
+	// For pacing demos and apps whose animations outrun the assertions.
+	StepDelay int
 
 	// Device information (set by executor)
 	DeviceInfo *report.Device

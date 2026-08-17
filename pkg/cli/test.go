@@ -150,6 +150,11 @@ Examples:
 			EnvVars: []string{"MAESTRO_WAIT_FOR_IDLE_TIMEOUT"},
 		},
 		&cli.IntFlag{
+			Name:    "step-delay",
+			Usage:   "Pause between steps in ms (default 0 — no delay). For pacing demos or apps whose animations outrun assertions. Flows can override with stepDelay in their config.",
+			EnvVars: []string{"MAESTRO_STEP_DELAY"},
+		},
+		&cli.IntFlag{
 			Name:    "condition-timeout",
 			Usage:   "Default timeout in ms for when:/while: condition checks (default 1000). Override per condition with `timeout:`.",
 			Value:   1000,
@@ -521,6 +526,7 @@ type RunConfig struct {
 	// Driver settings
 	WaitForIdleTimeout int    // Wait for device idle in ms (0 = disabled, default 200)
 	ConditionTimeout   int    // Default timeout (ms) for when:/while: condition checks (default 1000)
+	StepDelay          int    // Pause between top-level steps in ms (0 = none)
 	TypingFrequency    int    // WDA typing frequency in keys/sec (0 = use WDA default of 60)
 	TeamID             string // Apple Development Team ID for WDA code signing
 	WDABundleID        string // Custom WDA bundle identifier
@@ -738,6 +744,7 @@ func runTest(c *cli.Context) error {
 		Capabilities:       caps,
 		WaitForIdleTimeout: getInt("wait-for-idle-timeout"),
 		ConditionTimeout:   getInt("condition-timeout"),
+		StepDelay:          getInt("step-delay"),
 		TypingFrequency:    getInt("typing-frequency"),
 		TeamID:             getString("team-id"),
 		WDABundleID:        getString("wda-bundle-id"),
@@ -1434,6 +1441,7 @@ func executeSingleDevice(cfg *RunConfig, flows []flow.Flow) (*executor.RunResult
 		Env:                cfg.Env,
 		WaitForIdleTimeout: cfg.WaitForIdleTimeout,
 		ConditionTimeout:   cfg.ConditionTimeout,
+		StepDelay:          cfg.StepDelay,
 		TypingFrequency:    cfg.TypingFrequency,
 		DeviceInfo:         &deviceInfo,
 		OnFlowStart:        onFlowStartWithCloud(cfg),
@@ -1484,6 +1492,7 @@ func ExecuteFlowWithDriver(driver core.Driver, cfg *RunConfig, f flow.Flow) (*ex
 		Env:                cfg.Env,
 		WaitForIdleTimeout: cfg.WaitForIdleTimeout,
 		ConditionTimeout:   cfg.ConditionTimeout,
+		StepDelay:          cfg.StepDelay,
 		TypingFrequency:    cfg.TypingFrequency,
 		DeviceInfo:         &deviceInfo,
 		OnFlowStart:        onFlowStartWithCloud(cfg),
@@ -1811,6 +1820,7 @@ func executeAppiumSingleSession(cfg *RunConfig, flows []flow.Flow) (*executor.Ru
 		Env:                cfg.Env,
 		WaitForIdleTimeout: cfg.WaitForIdleTimeout,
 		ConditionTimeout:   cfg.ConditionTimeout,
+		StepDelay:          cfg.StepDelay,
 		TypingFrequency:    cfg.TypingFrequency,
 		DeviceInfo:         &deviceInfo,
 		OnFlowStart:        onFlowStartWithCloud(cfg),
@@ -2687,6 +2697,7 @@ func createParallelRunner(cfg *RunConfig, workers []executor.DeviceWorker, platf
 		Env:                cfg.Env,
 		WaitForIdleTimeout: cfg.WaitForIdleTimeout,
 		ConditionTimeout:   cfg.ConditionTimeout,
+		StepDelay:          cfg.StepDelay,
 		TypingFrequency:    cfg.TypingFrequency,
 		// Callbacks will be set per-worker in parallel.go with device info
 	}
