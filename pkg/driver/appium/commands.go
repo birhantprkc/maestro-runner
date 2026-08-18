@@ -86,7 +86,10 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %s", step.Selector.Describe()))
 	}
 
-	cx, cy := info.Bounds.Center()
+	cx, cy, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+	if perr != nil {
+		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+	}
 	if err := d.client.DoubleTap(cx, cy); err != nil {
 		return errorResult(err, "Failed to double tap")
 	}
@@ -111,7 +114,10 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 		duration = 1000 // Default 1 second for long press
 	}
 
-	cx, cy := info.Bounds.Center()
+	cx, cy, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+	if perr != nil {
+		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+	}
 	if err := d.client.LongPress(cx, cy, duration); err != nil {
 		return errorResult(err, "Failed to long press")
 	}

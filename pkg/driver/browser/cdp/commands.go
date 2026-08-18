@@ -243,6 +243,23 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 			})
 	}
 
+	// An explicit `point:` has to go through coordinates — the element-scoped
+	// click always lands on the centre.
+	if step.Selector.Point != "" {
+		x, y, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+		if perr != nil {
+			return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+		}
+		m := d.page.Mouse
+		if err := m.MoveTo(proto.NewPoint(float64(x), float64(y))); err != nil {
+			return errorResult(err, "Failed to move to point for double tap")
+		}
+		if err := m.Click(proto.InputMouseButtonLeft, 2); err != nil {
+			return errorResult(err, "Failed to double tap at point")
+		}
+		return successResult(fmt.Sprintf("Double tapped %s", step.Selector.DescribeQuoted()), info)
+	}
+
 	if err := elem.Click(proto.InputMouseButtonLeft, 2); err != nil {
 		return errorResult(err, "Failed to double tap on element")
 	}
@@ -250,7 +267,17 @@ func (d *Driver) doubleTapOn(step *flow.DoubleTapOnStep) *core.CommandResult {
 	return successResult(fmt.Sprintf("Double tapped on %s", step.Selector.DescribeQuoted()), info)
 }
 
-// longPressOn performs a long press (mouse down, hold 1s, mouse up).
+// longPressDuration returns the press duration for a long press, defaulting to
+// a second when the flow does not say. The step has always carried
+// `duration:`; the mouse paths used to hardcode the default and drop it.
+func longPressDuration(step *flow.LongPressOnStep) time.Duration {
+	if step.DurationMs > 0 {
+		return time.Duration(step.DurationMs) * time.Millisecond
+	}
+	return time.Second
+}
+
+// longPressOn performs a long press (mouse down, hold, mouse up).
 func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 	elem, info, err := d.findElement(step.Selector, isOptional(step.Selector.Optional), step.TimeoutMs)
 	if err != nil {
@@ -275,9 +302,30 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 				if err := m.Down(proto.InputMouseButtonLeft, 1); err != nil {
 					return err
 				}
-				time.Sleep(1 * time.Second)
+				time.Sleep(longPressDuration(step))
 				return m.Up(proto.InputMouseButtonLeft, 1)
 			})
+	}
+
+	// An explicit `point:` has to go through coordinates — WaitInteractable
+	// below returns the element's own interaction point, always the centre.
+	if step.Selector.Point != "" {
+		x, y, perr := core.PointInBounds(step.Selector.Point, info.Bounds)
+		if perr != nil {
+			return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+		}
+		m := d.page.Mouse
+		if err := m.MoveTo(proto.NewPoint(float64(x), float64(y))); err != nil {
+			return errorResult(err, "Failed to move to point for long press")
+		}
+		if err := m.Down(proto.InputMouseButtonLeft, 1); err != nil {
+			return errorResult(err, "Failed to press at point")
+		}
+		time.Sleep(longPressDuration(step))
+		if err := m.Up(proto.InputMouseButtonLeft, 1); err != nil {
+			return errorResult(err, "Failed to release at point")
+		}
+		return successResult(fmt.Sprintf("Long pressed %s", step.Selector.DescribeQuoted()), info)
 	}
 
 	// Scroll into view and wait for interactable
@@ -293,7 +341,7 @@ func (d *Driver) longPressOn(step *flow.LongPressOnStep) *core.CommandResult {
 	if err := mouse.Down(proto.InputMouseButtonLeft, 1); err != nil {
 		return errorResult(err, "Failed to mouse down")
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(longPressDuration(step))
 	if err := mouse.Up(proto.InputMouseButtonLeft, 1); err != nil {
 		return errorResult(err, "Failed to mouse up")
 	}
