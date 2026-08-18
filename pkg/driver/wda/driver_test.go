@@ -4595,7 +4595,7 @@ func TestParseResponseWDAErrorNoMessage(t *testing.T) {
 
 	_, err := client.get("/test")
 	if err == nil {
-		t.Error("Expected error")
+		t.Fatal("Expected error")
 	}
 	if !strings.Contains(err.Error(), "simple error") {
 		t.Errorf("Expected error to contain 'simple error', got: %s", err)

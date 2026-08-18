@@ -275,7 +275,7 @@ func TestCallRPCError(t *testing.T) {
 
 	_, err = c.call("someMethod", nil)
 	if err == nil {
-		t.Error("expected error from RPC")
+		t.Fatal("expected error from RPC")
 	}
 	if !strings.Contains(err.Error(), "test error") {
 		t.Errorf("error = %q, want to contain 'test error'", err.Error())

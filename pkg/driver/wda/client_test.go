@@ -1159,7 +1159,7 @@ func TestWDAError(t *testing.T) {
 
 	_, err := client.FindElement("xpath", "//invalid")
 	if err == nil {
-		t.Error("Expected error for WDA error response")
+		t.Fatal("Expected error for WDA error response")
 	}
 
 	if !strings.Contains(err.Error(), "WDA error") {

@@ -76,7 +76,7 @@ func TestResolveOutputDir_Flatten(t *testing.T) {
 func TestResolveOutputDir_FlattenWithoutOutput(t *testing.T) {
 	_, err := resolveOutputDir("", true)
 	if err == nil {
-		t.Error("expected error when flatten is used without output")
+		t.Fatal("expected error when flatten is used without output")
 	}
 
 	if !strings.Contains(err.Error(), "--flatten requires --output") {
@@ -251,7 +251,7 @@ func TestStartDeviceCommand_NoPlatform(t *testing.T) {
 	// start-device requires platform
 	err := app.Run([]string{"test-app", "start-device"})
 	if err == nil {
-		t.Error("expected error when platform not provided")
+		t.Fatal("expected error when platform not provided")
 	}
 	if err != nil && !strings.Contains(err.Error(), "--platform is required") {
 		t.Errorf("expected platform required error, got: %v", err)
@@ -731,7 +731,7 @@ func TestLoadCapabilities_InvalidJSON(t *testing.T) {
 
 	_, err := loadCapabilities(capsFile)
 	if err == nil {
-		t.Error("expected error for invalid JSON")
+		t.Fatal("expected error for invalid JSON")
 	}
 	if !strings.Contains(err.Error(), "failed to parse caps JSON") {
 		t.Errorf("expected parse error, got: %v", err)
@@ -741,7 +741,7 @@ func TestLoadCapabilities_InvalidJSON(t *testing.T) {
 func TestLoadCapabilities_FileNotFound(t *testing.T) {
 	_, err := loadCapabilities("/nonexistent/caps.json")
 	if err == nil {
-		t.Error("expected error for nonexistent file")
+		t.Fatal("expected error for nonexistent file")
 	}
 	if !strings.Contains(err.Error(), "failed to read caps file") {
 		t.Errorf("expected read error, got: %v", err)
@@ -1621,7 +1621,7 @@ func TestExecuteFlowsWithMode_AppiumParallel(t *testing.T) {
 	testFlows := []flow.Flow{{}, {}} // need flows so min(parallel, flows) > 0
 	_, err := executeFlowsWithMode(cfg, testFlows, true, []string{"appium-1", "appium-2"})
 	if err == nil {
-		t.Error("expected error for parallel Appium with no server URL")
+		t.Fatal("expected error for parallel Appium with no server URL")
 	}
 	// Should fail on session creation (no AppiumURL), not on "not supported"
 	if strings.Contains(err.Error(), "not yet supported") {
@@ -2233,7 +2233,7 @@ func TestHandleDeviceStartup_EmulatorFlagOnIOS(t *testing.T) {
 
 	err := handleDeviceStartup(cfg, emulatorMgr, simulatorMgr)
 	if err == nil {
-		t.Error("expected error when --start-emulator is used with --platform ios")
+		t.Fatal("expected error when --start-emulator is used with --platform ios")
 	}
 	if !strings.Contains(err.Error(), "--start-emulator is for Android") {
 		t.Errorf("expected mismatch error message, got: %v", err)
@@ -2250,7 +2250,7 @@ func TestHandleDeviceStartup_SimulatorFlagOnAndroid(t *testing.T) {
 
 	err := handleDeviceStartup(cfg, emulatorMgr, simulatorMgr)
 	if err == nil {
-		t.Error("expected error when --start-simulator is used with --platform android")
+		t.Fatal("expected error when --start-simulator is used with --platform android")
 	}
 	if !strings.Contains(err.Error(), "--start-simulator is for iOS") {
 		t.Errorf("expected mismatch error message, got: %v", err)
@@ -2267,7 +2267,7 @@ func TestHandleDeviceStartup_SimulatorFlagOnDefaultPlatform(t *testing.T) {
 
 	err := handleDeviceStartup(cfg, emulatorMgr, simulatorMgr)
 	if err == nil {
-		t.Error("expected error when --start-simulator is used without --platform ios")
+		t.Fatal("expected error when --start-simulator is used without --platform ios")
 	}
 	if !strings.Contains(err.Error(), "--start-simulator is for iOS") {
 		t.Errorf("expected mismatch error message, got: %v", err)
@@ -2337,7 +2337,7 @@ func TestActiveCleanup_NilSafeInSignalHandler(t *testing.T) {
 func TestAutoDetectDevices_InvalidCount(t *testing.T) {
 	_, err := autoDetectDevices("android", 0)
 	if err == nil {
-		t.Error("expected error for count=0")
+		t.Fatal("expected error for count=0")
 	}
 	if !strings.Contains(err.Error(), "device count must be positive") {
 		t.Errorf("unexpected error: %v", err)
@@ -2352,7 +2352,7 @@ func TestAutoDetectDevices_InvalidCount(t *testing.T) {
 func TestAutoDetectDevices_UnsupportedPlatform(t *testing.T) {
 	_, err := autoDetectDevices("web", 1)
 	if err == nil {
-		t.Error("expected error for unsupported platform")
+		t.Fatal("expected error for unsupported platform")
 	}
 	if !strings.Contains(err.Error(), "unsupported platform for auto-detection") {
 		t.Errorf("unexpected error: %v", err)

@@ -2736,7 +2736,7 @@ func TestApplyPermissionInvalidValue(t *testing.T) {
 	err := driver.applyPermission("com.example.app", "android.permission.CAMERA", "invalid")
 
 	if err == nil {
-		t.Error("expected error for invalid permission value")
+		t.Fatal("expected error for invalid permission value")
 	}
 	if !strings.Contains(err.Error(), "invalid permission value") {
 		t.Errorf("expected 'invalid permission value' in error, got: %v", err)
