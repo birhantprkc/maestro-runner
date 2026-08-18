@@ -29,12 +29,26 @@ This release is about **gestures that behave like a user's finger**: a real `dra
     testID: Test-1234
   ```
 - **Failure artifacts in JUnit reports** — failed testcases attach the failing step's screenshot, and any `--record` video, via the `[[ATTACHMENT|path]]` convention Jenkins-style tooling reads; paths are relative to the report directory. A green run attaches only the video.
+- **Negation globs in `config.yaml`** — a `flows:` pattern prefixed with `!` subtracts the files it would otherwise have selected, so a workspace can take everything and carve out the fixtures. Exclusions reuse the inclusion matcher, so `!a/**` excludes exactly what `a/**` would have included.
+  ```yaml
+  flows:
+    - "**"
+    - "!fixtures/**"
+  ```
+- **DeviceLab iOS targets the app that's actually on screen** — a command with no `appId` used to activate the runner's own placeholder host app, hijacking whatever you were looking at with a blank screen, because XCUITest's public API can't address "the app in front". It now resolves the frontmost application through the active-application PIDs and targets it with no activation at all, falling back to the host app (and logging which guard missed) when any step is unavailable.
+- **The DeviceLab iOS runner source ships inside the Go module** — library consumers previously built the runner from whatever was in `~/.maestro-runner/drivers/ios`, a hidden runtime dependency and a protocol-skew hazard where a pinned Go client could drive runner sources from a different version. The runner a consumer runs is now version-locked to the module it compiled against, with no maestro-runner installation needed. The CLI keeps using the installed directory — identical content, shared build cache.
 
 ### Fixed
 - **`scrollUntilVisible` stopped on elements it shouldn't have** — every driver accepted any 1px viewport overlap (or mere presence) as "visible", and the documented `visibilityPercentage` knob was parsed but wired to nothing. The stop criterion is now a real visibility check on every driver: fully visible by default, honoring `visibilityPercentage` when set. Heads-up: flows that relied on a sliver of the element counting as visible may scroll one step further now. On DeviceLab iOS, frames that arrive pre-clipped to the viewport (Flutter semantics especially) additionally need to hold still across one extra scroll before being accepted, so a 12pt sliver of an 80pt row can't masquerade as fully visible.
 - **Flutter apps were undrivable on the DeviceLab iOS driver** — four stacked causes, each fixed: the Flutter VM fallback was wired only into the WDA path; the driver implemented neither the coordinate-tap step the fallback delivers taps through nor `tapOn: point:`; the fallback's short find windows leaked into the runner's HTTP timeout and cut XCUITest calls off mid-flight; and scroll gestures released mid-motion, so iOS spent the next tap cancelling residual deceleration instead of activating anything — a silent no-op. Scrolls now hold still 250ms before lifting, the same dead-stop lesson the Android agent swipes learned. On the Flutter issue-repro suite the driver goes from 9/19 to 17/19 — ahead of WDA-with-fallback at 14/19; the two remaining failures reproduce open Flutter framework bugs and fail on every driver.
 
+- **Web flow-header variables reached the browser unexpanded** — a flow declaring `url: ${BASE_URL}` sent the literal `${BASE_URL}` to Chromium, which rejected it as an invalid URL, so `--platform web` could not be driven from the environment at all. The header is now expanded through the same script engine, in the same precedence order, that expands steps — so `-e`, `--env-file` and workspace config all reach the initial navigation ([#145](https://github.com/devicelab-dev/maestro-runner/issues/145)).
+- **A dead DeviceLab iOS runner left no trail** — mid-session runner deaths surfaced only as `connection refused`: `runner.log` was truncated on every start, the runner exited on the first listener failure, and nothing distinguished a requested shutdown from a spontaneous one. The listener now rebinds on failure (5 retries, 1s backoff) rather than exiting, since simulator network daemons crash-loop on some Xcode/runtime combinations; every deliberate exit logs its reason; `runner.log` rotates through three generations so the log explaining a death survives the burst of failed restarts that follows it; and an `xcodebuild` that exits mid-session without a Stop being requested now says so on stderr.
+
 ### Contributors
+
+[@humuhimi](https://github.com/humuhimi)
+1. Reported and fixed web flow-header variables not being expanded before browser launch ([#145](https://github.com/devicelab-dev/maestro-runner/issues/145), [#146](https://github.com/devicelab-dev/maestro-runner/pull/146))
 
 [@zcsteele](https://github.com/zcsteele)
 1. Requested custom properties in JUnit report files ([#84](https://github.com/devicelab-dev/maestro-runner/issues/84))
