@@ -91,19 +91,15 @@ func (d *AndroidDevice) StartDeviceLabDriver(cfg DeviceLabDriverConfig) error {
 		return fmt.Errorf("failed to start DeviceLab Android Driver instrumentation: %w", err)
 	}
 
-	// Quick check: give it 2 seconds then verify it didn't crash immediately
-	time.Sleep(2 * time.Second)
-	if crashed, reason := d.checkDriverCrashed(); crashed {
-		if stopErr := d.StopDeviceLabDriver(); stopErr != nil {
-			logger.Warn("failed to stop DeviceLab Android Driver after crash: %v", stopErr)
-		}
-		return fmt.Errorf("DeviceLab driver crashed on startup: %s", reason)
-	}
-
-	// Wait for driver to be ready
+	// Wait for the driver to be ready, failing early if it reports a
+	// crash. There is deliberately no fixed grace period before that
+	// check: `am instrument` can take several seconds to appear in `ps`
+	// on a cold start (dexopt) or a loaded device, and a timed check
+	// against a variable startup kills drivers that were about to come
+	// up — measured at roughly one start in ten on an emulator.
 	if err := d.waitForDeviceLabDriverReady(cfg.Timeout); err != nil {
 		// Read crash log for diagnostics
-		if _, reason := d.checkDriverCrashed(); reason != "" {
+		if reason := d.driverLogTail(); reason != "" {
 			err = fmt.Errorf("%w\nDriver output: %s", err, reason)
 		}
 		// Slow-infra diagnostics: surface the runtime state that's most
@@ -169,22 +165,60 @@ func (d *AndroidDevice) checkUiAutomationConflict() error {
 }
 
 // checkDriverCrashed checks if the driver process exited and returns the reason.
-func (d *AndroidDevice) checkDriverCrashed() (crashed bool, reason string) {
-	output, _ := d.Shell("ps -A")
-	if strings.Contains(output, DeviceLabDriverServer) {
-		return false, "" // still running
-	}
+// driverState is what the device can tell us about the driver process.
+type driverState int
 
-	// Process not found — read the log for crash info
-	logOutput, err := d.Shell("cat /data/local/tmp/devicelab-driver.log")
-	if err != nil || logOutput == "" {
-		return true, "process exited (no log output)"
+const (
+	// driverRunning: the process is in the process table.
+	driverRunning driverState = iota
+	// driverStarting: no process yet, and nothing in the log — which is
+	// not evidence of anything. `am instrument` writes nothing until it
+	// has something to say, so an absent process with an empty log is
+	// indistinguishable from one that simply has not started yet.
+	driverStarting
+	// driverFailed: no process, and the log explains why.
+	driverFailed
+)
+
+// classifyDriverState decides what the device's process table and driver
+// log mean. Kept pure so the decision is testable without a device.
+//
+// The distinction that matters is between failed and starting: treating
+// "no process, no log" as a crash is what made driver startup flaky,
+// because it is exactly what a slow-but-healthy start looks like two
+// seconds in.
+func classifyDriverState(psOutput, logOutput string, logErr error) (driverState, string) {
+	if strings.Contains(psOutput, DeviceLabDriverServer) {
+		return driverRunning, ""
+	}
+	if logErr != nil || strings.TrimSpace(logOutput) == "" {
+		return driverStarting, ""
 	}
 	// Trim to last 500 chars for readability
 	if len(logOutput) > 500 {
 		logOutput = logOutput[len(logOutput)-500:]
 	}
-	return true, strings.TrimSpace(logOutput)
+	return driverFailed, strings.TrimSpace(logOutput)
+}
+
+// checkDriverState reads the device and classifies the driver process.
+func (d *AndroidDevice) checkDriverState() (driverState, string) {
+	psOutput, _ := d.Shell("ps -A")
+	logOutput, logErr := d.Shell("cat /data/local/tmp/devicelab-driver.log")
+	return classifyDriverState(psOutput, logOutput, logErr)
+}
+
+// driverLogTail returns whatever the driver log holds, for diagnostics
+// on a startup timeout. Empty when there is nothing to report.
+func (d *AndroidDevice) driverLogTail() string {
+	logOutput, err := d.Shell("cat /data/local/tmp/devicelab-driver.log")
+	if err != nil {
+		return ""
+	}
+	if len(logOutput) > 500 {
+		logOutput = logOutput[len(logOutput)-500:]
+	}
+	return strings.TrimSpace(logOutput)
 }
 
 // setupDeviceLabSocketForward sets up Unix socket forwarding for the DeviceLab Android Driver.
@@ -312,6 +346,11 @@ func (d *AndroidDevice) waitForDeviceLabDriverReady(timeout time.Duration) error
 	for time.Now().Before(deadline) {
 		if d.checkDeviceLabHealth() {
 			return nil
+		}
+		// A driver that has actually failed says so in its log; stop
+		// waiting for it rather than burning the whole timeout.
+		if state, reason := d.checkDriverState(); state == driverFailed {
+			return fmt.Errorf("DeviceLab driver crashed on startup: %s", reason)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -442,12 +481,12 @@ func (d *AndroidDevice) UninstallDeviceLabDriver() error {
 // pieces of runtime state that explain the common slow-infra failure
 // modes:
 //
-//   * `adb forward --list` — verifies our local→device port/socket
+//   - `adb forward --list` — verifies our local→device port/socket
 //     forward is established. If it's missing or pointing at a different
 //     port, the health check's net.Dial("tcp", 127.0.0.1:N) is failing
 //     because there's nothing on the local end (not because the driver
 //     is down).
-//   * `cat /proc/net/tcp` filtered to our port — verifies the driver
+//   - `cat /proc/net/tcp` filtered to our port — verifies the driver
 //     process actually bound its WebSocket port on the device. If it
 //     didn't, the driver is still warming up (JVM, classpath, etc.) and
 //     a longer --driver-start-timeout helps.
