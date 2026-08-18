@@ -40,16 +40,16 @@ QUOTED_HASH_SPACE="value # with space"
 	}
 
 	want := map[string]string{
-		"APP_ID":             "com.example.app",
-		"TEST_MESSAGE":       "Hello from environment file!",
-		"TEST_URL":           "https://api.example.com",
-		"TEST_QUOTE_1":       "Quote 1",
-		"TEST_QUOTE_2":       "Quote 2",
-		"COLOR":              "#FFFFFF",
-		"HASH_IN_VALUE":      "https://example.com/page#section",
-		"EMPTY":              "",
-		"SPACES_AROUND":      "value with spaces",
-		"QUOTED_HASH_SPACE":  "value # with space",
+		"APP_ID":            "com.example.app",
+		"TEST_MESSAGE":      "Hello from environment file!",
+		"TEST_URL":          "https://api.example.com",
+		"TEST_QUOTE_1":      "Quote 1",
+		"TEST_QUOTE_2":      "Quote 2",
+		"COLOR":             "#FFFFFF",
+		"HASH_IN_VALUE":     "https://example.com/page#section",
+		"EMPTY":             "",
+		"SPACES_AROUND":     "value with spaces",
+		"QUOTED_HASH_SPACE": "value # with space",
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -133,5 +133,56 @@ func TestUnquoteEnvValue(t *testing.T) {
 		if got := unquoteEnvValue(c.in); got != c.want {
 			t.Errorf("unquoteEnvValue(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestExpandRunnerVars(t *testing.T) {
+	t.Setenv("SYS_ONLY", "from-system")
+
+	for name, tc := range map[string]struct {
+		value string
+		env   map[string]string
+		want  string
+	}{
+		"runner env wins over system": {"${SYS_ONLY}", map[string]string{"SYS_ONLY": "from-runner"}, "from-runner"},
+		"falls back to system":        {"${SYS_ONLY}", nil, "from-system"},
+		"no template is untouched":    {"com.example.app", nil, "com.example.app"},
+		"empty stays empty":           {"", nil, ""},
+		"embedded in a url":           {"http://${HOST}:3000", map[string]string{"HOST": "127.0.0.1"}, "http://127.0.0.1:3000"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := expandRunnerVars(tc.value, tc.env); got != tc.want {
+				t.Errorf("expandRunnerVars(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnresolvedVars(t *testing.T) {
+	t.Setenv("PRESENT_IN_SYSTEM", "x")
+
+	for name, tc := range map[string]struct {
+		value string
+		env   map[string]string
+		want  []string
+	}{
+		"unset is reported":    {"${NOPE}", nil, []string{"NOPE"}},
+		"runner env satisfies": {"${OK}", map[string]string{"OK": "v"}, nil},
+		"system env satisfies": {"${PRESENT_IN_SYSTEM}", nil, nil},
+		"reported once each":   {"${A}/${A}/${B}", nil, []string{"A", "B"}},
+		"no template, nothing": {"com.example.app", nil, nil},
+		"empty value is fine":  {"", nil, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := unresolvedVars(tc.value, tc.env)
+			if len(got) != len(tc.want) {
+				t.Fatalf("unresolvedVars(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("unresolvedVars(%q) = %v, want %v", tc.value, got, tc.want)
+				}
+			}
+		})
 	}
 }

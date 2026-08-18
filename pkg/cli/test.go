@@ -934,6 +934,23 @@ func executeTest(cfg *RunConfig) error {
 		cfg.AppID = flows[0].Config.EffectiveAppID()
 	}
 
+	// Expand the resolved appId/url once, here, so every platform sees a
+	// concrete value. This runs before any flow does, so nothing downstream
+	// would otherwise expand it: web handed the literal `${BASE_URL}` to
+	// Chromium, and the Android/iOS version lookups queried a package that
+	// cannot exist and silently reported no app version.
+	//
+	// An unset variable expands to nothing, which would surface much later as
+	// a bare "no URL specified" — so name it here instead.
+	if missing := unresolvedVars(cfg.AppID, cfg.Env); len(missing) > 0 {
+		return fmt.Errorf(
+			"flow header references %s, which %s not set — supply %s with -e, --env-file, or the workspace config",
+			"${"+strings.Join(missing, "}, ${")+"}",
+			map[bool]string{true: "is", false: "are"}[len(missing) == 1],
+			map[bool]string{true: "it", false: "them"}[len(missing) == 1])
+	}
+	cfg.AppID = expandRunnerVars(cfg.AppID, cfg.Env)
+
 	// 3.5. Handle device startup (emulator or simulator, if requested)
 	if err := handleDeviceStartup(cfg, emulatorMgr, simulatorMgr); err != nil {
 		logger.Error("Device startup failed: %v", err)

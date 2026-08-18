@@ -5,7 +5,6 @@ import (
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 	cdpdriver "github.com/devicelab-dev/maestro-runner/pkg/driver/browser/cdp"
-	"github.com/devicelab-dev/maestro-runner/pkg/executor"
 	"github.com/devicelab-dev/maestro-runner/pkg/logger"
 )
 
@@ -32,16 +31,14 @@ func CreateWebDriver(cfg *RunConfig) (core.Driver, func(), error) {
 }
 
 // buildWebDriverConfig expands the flow header with the runner environment
-// before the CDP driver's initial navigation.
+// before the CDP driver's initial navigation. Expansion also happens once
+// centrally when the header is resolved; repeating it here is idempotent and
+// keeps this entry point correct for library callers that build a RunConfig
+// themselves.
 func buildWebDriverConfig(cfg *RunConfig) cdpdriver.Config {
-	script := executor.NewScriptEngine()
-	defer script.Close()
-	script.ImportSystemEnv()
-	script.SetVariables(cfg.Env)
-
 	return cdpdriver.Config{
 		Headless:    !cfg.Headed,
-		URL:         script.ExpandVariables(cfg.AppID),
+		URL:         expandRunnerVars(cfg.AppID, cfg.Env),
 		Browser:     cfg.Browser,
 		UserDataDir: cfg.UserDataDir,
 	}

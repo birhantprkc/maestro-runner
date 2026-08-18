@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
+
+	"github.com/devicelab-dev/maestro-runner/pkg/executor"
 )
 
 // ParseEnvFile reads a `.env`-style file and returns the key/value pairs.
@@ -90,4 +93,50 @@ func isValidEnvKey(k string) bool {
 		return false
 	}
 	return true
+}
+
+// expandRunnerVars resolves `${VAR}` in a value using the same engine and the
+// same precedence the executor applies to steps: system environment first, then
+// the merged runner env (workspace config, then --env-file, then -e).
+//
+// Values that reach a driver before any flow executes have to be expanded here,
+// because nothing downstream will do it for them.
+func expandRunnerVars(value string, env map[string]string) string {
+	if value == "" || !strings.Contains(value, "${") {
+		return value
+	}
+	script := executor.NewScriptEngine()
+	defer script.Close()
+	script.ImportSystemEnv()
+	script.SetVariables(env)
+	return script.ExpandVariables(value)
+}
+
+// varRefPattern matches a `${NAME}` reference.
+var varRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// unresolvedVars returns the `${VAR}` names in value that have no value in env
+// or the process environment, in first-appearance order.
+//
+// Expansion silently yields an empty string for an unset variable, which turns a
+// misconfigured `url: ${BASE_URL}` into a confusing "no URL specified" much
+// later in the run. Naming the variable up front is the whole point.
+func unresolvedVars(value string, env map[string]string) []string {
+	var missing []string
+	seen := map[string]bool{}
+	for _, m := range varRefPattern.FindAllStringSubmatch(value, -1) {
+		name := m[1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if _, ok := env[name]; ok {
+			continue
+		}
+		if _, ok := os.LookupEnv(name); ok {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	return missing
 }
