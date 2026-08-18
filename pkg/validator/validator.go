@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/config"
@@ -112,18 +113,46 @@ func (v *Validator) collectTestCases(dir string) ([]string, error) {
 	return v.collectByPatterns(dir, patterns)
 }
 
-// collectByPatterns collects flow files matching glob patterns.
+// collectByPatterns collects flow files matching glob patterns. A pattern
+// prefixed with "!" subtracts the files it would otherwise have selected, so
+// exclusions read the same as inclusions:
+//
+//	flows:
+//	  - "**"
+//	  - "!fixtures/**"
 func (v *Validator) collectByPatterns(dir string, patterns []string) ([]string, error) {
+	positive, negative := partitionNegations(patterns)
+
+	// Negations subtract from a selection; on their own they select nothing,
+	// which is never what the author meant.
+	if len(positive) == 0 && len(negative) > 0 {
+		return nil, fmt.Errorf(
+			"config.yaml flows: only negation patterns given (%s), so no flows would match; "+
+				"add a positive pattern such as \"**\" to select the flows to run",
+			strings.Join(quoteAll(negative), ", "))
+	}
+
+	excluded := make(map[string]bool)
+	for _, pattern := range negative {
+		matches, err := v.matchPattern(dir, strings.TrimPrefix(pattern, "!"))
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range matches {
+			excluded[match] = true
+		}
+	}
+
 	var files []string
 	seen := make(map[string]bool)
 
-	for _, pattern := range patterns {
+	for _, pattern := range positive {
 		matches, err := v.matchPattern(dir, pattern)
 		if err != nil {
 			return nil, err
 		}
 		for _, match := range matches {
-			if !seen[match] {
+			if !seen[match] && !excluded[match] {
 				seen[match] = true
 				files = append(files, match)
 			}
@@ -131,6 +160,27 @@ func (v *Validator) collectByPatterns(dir string, patterns []string) ([]string, 
 	}
 
 	return files, nil
+}
+
+// partitionNegations splits patterns into those that select files and those
+// prefixed with "!", which subtract them.
+func partitionNegations(patterns []string) (positive, negative []string) {
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, "!") {
+			negative = append(negative, pattern)
+		} else {
+			positive = append(positive, pattern)
+		}
+	}
+	return positive, negative
+}
+
+func quoteAll(values []string) []string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = strconv.Quote(value)
+	}
+	return quoted
 }
 
 // matchPattern matches a glob pattern and returns flow files.

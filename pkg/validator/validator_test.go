@@ -1418,3 +1418,83 @@ func TestValidate_RecursivePatternWildcardPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectByPatterns_NegationExcludesFile(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"flowA.yaml":   `- tapOn: "A"`,
+		"flowB.yaml":   `- tapOn: "B"`,
+		"ignored.yaml": `- tapOn: "Ignored"`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v := New(nil, nil)
+	got, err := v.collectByPatterns(dir, []string{"**", "!ignored.yaml"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("collected %d files, want 2: %v", len(got), got)
+	}
+	for _, f := range got {
+		if filepath.Base(f) == "ignored.yaml" {
+			t.Errorf("ignored.yaml should have been excluded, got %v", got)
+		}
+	}
+}
+
+func TestCollectByPatterns_NegationExcludesDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(dir, "featureA"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "fixtures"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	files := map[string]string{
+		"featureA/flowA.yaml": `- tapOn: "A"`,
+		"fixtures/setup.yaml": `- tapOn: "Setup"`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	v := New(nil, nil)
+	got, err := v.collectByPatterns(dir, []string{"**", "!fixtures/**"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("collected %d files, want 1: %v", len(got), got)
+	}
+	if filepath.Base(got[0]) != "flowA.yaml" {
+		t.Errorf("collected %v, want only featureA/flowA.yaml", got)
+	}
+}
+
+func TestCollectByPatterns_OnlyNegationsIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "flowA.yaml"), []byte(`- tapOn: "A"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := New(nil, nil)
+	_, err := v.collectByPatterns(dir, []string{"!ignored.yaml"})
+	if err == nil {
+		t.Fatal("expected an error when only negation patterns are given")
+	}
+	if !strings.Contains(err.Error(), "no flows would match") {
+		t.Errorf("error should explain that nothing would match, got: %v", err)
+	}
+}
