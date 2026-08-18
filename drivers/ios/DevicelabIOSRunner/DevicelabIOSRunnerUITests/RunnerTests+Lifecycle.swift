@@ -72,6 +72,55 @@ extension RunnerTests {
 
   // MARK: - Target Activation
 
+  /// The application that is actually on screen, resolved through the
+  /// same private accessibility surface WebDriverAgent uses: active
+  /// applications carry PIDs, and XCUIApplication can be built from a
+  /// PID. Returns nil when the private interface is unavailable so
+  /// callers fall back to the placeholder host app.
+  func frontmostApplication() -> XCUIApplication? {
+    guard let interface = XCUIDevice.shared.value(forKey: "accessibilityInterface") as? NSObject else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=interface")
+      return nil
+    }
+    guard interface.responds(to: NSSelectorFromString("activeApplications")) else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=responds class=%@", NSStringFromClass(type(of: interface)))
+      return nil
+    }
+    guard let raw = interface.perform(NSSelectorFromString("activeApplications"))?.takeUnretainedValue() else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=perform")
+      return nil
+    }
+    guard let elements = raw as? [XCAccessibilityElement], let frontmost = elements.first else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=cast raw=%@", String(describing: raw))
+      return nil
+    }
+    let pid = frontmost.processIdentifier
+    guard pid > 0 else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=pid")
+      return nil
+    }
+    guard let bundleId = Self.bundleID(forPID: pid) else {
+      NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_MISS step=bundleID pid=%d", pid)
+      return nil
+    }
+    NSLog("AGENT_DEVICE_RUNNER_FRONTMOST_TARGET pid=%d bundle=%@", pid, bundleId)
+    return XCUIApplication(bundleIdentifier: bundleId)
+  }
+
+  /// Resolves a simulator process to its app bundle identifier: the
+  /// process's executable lives inside its .app bundle on the host
+  /// filesystem, and Info.plist names the identifier.
+  static func bundleID(forPID pid: pid_t) -> String? {
+    var buf = [CChar](repeating: 0, count: 4096)
+    guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { return nil }
+    let bundleURL = URL(fileURLWithPath: String(cString: buf)).deletingLastPathComponent()
+    guard bundleURL.pathExtension == "app",
+      let plist = NSDictionary(contentsOf: bundleURL.appendingPathComponent("Info.plist")),
+      let bundleId = plist["CFBundleIdentifier"] as? String
+    else { return nil }
+    return bundleId
+  }
+
   func ensureRunnerHostAppActive(reason: String) {
     NSLog(
       "AGENT_DEVICE_RUNNER_HOST_ACTIVATE state=%d reason=%@",

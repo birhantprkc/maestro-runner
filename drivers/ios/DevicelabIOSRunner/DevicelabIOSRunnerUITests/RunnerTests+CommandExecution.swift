@@ -140,8 +140,15 @@ extension RunnerTests {
       if let bundleId = requestedBundleId, targetNeedsActivation(activeApp) {
         activeApp = activateTarget(bundleId: bundleId, reason: "stale_target")
       } else if requestedBundleId == nil, targetNeedsActivation(activeApp) {
-        ensureRunnerHostAppActive(reason: "missing_app_bundle")
-        activeApp = app
+        // No bundle named: target whatever is on screen rather than
+        // hijacking it with the placeholder host app.
+        if let front = frontmostApplication() {
+          currentApp = front
+          activeApp = front
+        } else {
+          ensureRunnerHostAppActive(reason: "missing_app_bundle")
+          activeApp = app
+        }
       }
 
       let skipExistenceWait = canUseFastForegroundAppGuard(
@@ -164,8 +171,13 @@ extension RunnerTests {
         if let bundleId = requestedBundleId, activeApp.state != .runningForeground {
           activeApp = activateTarget(bundleId: bundleId, reason: "interaction_foreground_guard")
         } else if requestedBundleId == nil, activeApp.state != .runningForeground {
-          ensureRunnerHostAppActive(reason: "interaction_missing_app_bundle")
-          activeApp = app
+          if let front = frontmostApplication() {
+            currentApp = front
+            activeApp = front
+          } else {
+            ensureRunnerHostAppActive(reason: "interaction_missing_app_bundle")
+            activeApp = app
+          }
         }
         let skipInteractionExistenceWait = canUseFastForegroundAppGuard(
           activeApp: activeApp,
