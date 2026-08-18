@@ -742,14 +742,6 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 		timeout = time.Duration(s.TimeoutMs) * time.Millisecond
 	}
 	deadline := time.Now().Add(timeout)
-	// prevRect detects clipped frames the geometry check cannot: iOS reports
-	// some frames (Flutter semantics especially) pre-clipped to the viewport,
-	// so a 12pt sliver of an 80pt row at the screen edge reads as "fully
-	// visible" — and the tap that follows lands in the edge zone and no-ops.
-	// When the matched rect is flush against a screen edge, one more scroll
-	// disambiguates: a clipped row grows or moves, a genuinely edge-hugging
-	// element stays put and is accepted.
-	var prevRect *SnapshotRect
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		node, err := d.findElement(s.Element, true, 1000)
 		if err == nil && node != nil && isDisplayed(node) {
@@ -761,18 +753,22 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 			// the only option.
 			w, h := d.screenDims()
 			if w == 0 || h == 0 || core.MeetsVisibility(snapshotBounds(node), w, h, s.VisibilityPercentage) {
-				// The flush check enforces only the default fully-visible
+				// The clamp check enforces only the default fully-visible
 				// contract — an explicit visibilityPercentage is the flow
 				// accepting partial visibility, clipped frames included.
 				explicitThreshold := s.VisibilityPercentage >= 1 && s.VisibilityPercentage < 100
-				suspicious := !explicitThreshold && w > 0 && h > 0 &&
-					rectFlushWithIncomingEdge(node.Rect, direction, w, h)
-				stable := prevRect != nil && *prevRect == node.Rect
-				if !suspicious || stable {
+				clamped := false
+				if !explicitThreshold && w > 0 && h > 0 {
+					// Same snapshot the match came from: the cache is still
+					// warm, and the helper verifies provenance before
+					// trusting any parent link.
+					if nodes, err := d.fetchSnapshot(); err == nil {
+						clamped = frameClampedByOffscreenAncestor(nodes, node, w, h)
+					}
+				}
+				if !clamped {
 					return core.SuccessResult("element found after scrolling", toElementInfo(node))
 				}
-				r := node.Rect
-				prevRect = &r
 			}
 		}
 		result := d.handleScroll(&flow.ScrollStep{Direction: direction})
@@ -1381,25 +1377,6 @@ func centerOf(n *SnapshotNode) (float64, float64) {
 }
 
 // snapshotBounds converts a node's rect to core.Bounds for visibility math.
-// rectFlushWithIncomingEdge reports whether the rect is flush against the
-// screen edge new content scrolls in from — the geometry a pre-clipped frame
-// produces there. Only that edge matters: full-width rows legitimately touch
-// the sides, and content scrolled past hugs the opposite edge on its way out.
-// Within one point, since frames arrive as floats.
-func rectFlushWithIncomingEdge(r SnapshotRect, direction string, screenW, screenH int) bool {
-	const eps = 1.0
-	switch direction {
-	case "up": // scrolling up reveals content at the top
-		return r.Y <= eps
-	case "left":
-		return r.X <= eps
-	case "right":
-		return r.X+r.Width >= float64(screenW)-eps
-	default: // "down" and anything unrecognized
-		return r.Y+r.Height >= float64(screenH)-eps
-	}
-}
-
 func snapshotBounds(n *SnapshotNode) core.Bounds {
 	return core.Bounds{
 		X:      int(n.Rect.X),
