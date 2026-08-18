@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.25] - 2026-08-18
+
+This release is about **gestures that behave like a user's finger**: a real `dragAndDrop` on every driver — press, hold until the item lifts, move slowly, settle, release — and a `scrollUntilVisible` that stops when the element is actually visible instead of one pixel in. Flutter apps go from barely drivable to ahead of WDA on the DeviceLab iOS driver, `--step-delay` slows any flow down for demos and animation-heavy apps, and JUnit reports carry test-tracking properties and failure artifacts into CI.
+
+### Added
+- **`dragAndDrop`** — long-press an element (or point) and drag it to another, the way reorder UIs expect. `from:`/`to:` each take a selector or a `point:`; `holdDuration` (ms, default 1000) is the press before movement, `duration` (ms, default 1000) the movement itself. Works on every driver: UIAutomator2 (W3C actions with precise hold and paced moves), DeviceLab Android (`input draganddrop`, Android 12+ — hold length comes from the system long-press timeout), WDA (`press(forDuration:thenDragTo:)` — XCUITest paces the move itself), DeviceLab iOS (runner drag with a new backward-compatible `moveDurationMs` field), web (paced CDP mouse sequence), and Appium (W3C actions).
+  ```yaml
+  - dragAndDrop:
+      from:
+        id: "item-3"
+      to:
+        point: "50%, 20%"
+      holdDuration: 800
+  ```
+  Heads-up for web: pages using native HTML5 `draggable` ignore synthetic mouse events by design — mouse/touch/pointer-event drag implementations work.
+- **`--step-delay <ms>`** — pace a pause between top-level steps, for demos and for apps whose animations outrun the assertions. Also `MAESTRO_STEP_DELAY` in the environment, and per-flow override with `stepDelay:` in the flow config.
+- **Flow `properties:` in JUnit reports** — a flow's `properties:` map (Maestro-compatible syntax) now lands as `<property>` entries on its JUnit testcase, next to the standard file and device properties — so flows can carry test-tracking ids into CI ([#84](https://github.com/devicelab-dev/maestro-runner/issues/84)).
+  ```yaml
+  properties:
+    testID: Test-1234
+  ```
+- **Failure artifacts in JUnit reports** — failed testcases attach the failing step's screenshot, and any `--record` video, via the `[[ATTACHMENT|path]]` convention Jenkins-style tooling reads; paths are relative to the report directory. A green run attaches only the video.
+
+### Fixed
+- **`scrollUntilVisible` stopped on elements it shouldn't have** — every driver accepted any 1px viewport overlap (or mere presence) as "visible", and the documented `visibilityPercentage` knob was parsed but wired to nothing. The stop criterion is now a real visibility check on every driver: fully visible by default, honoring `visibilityPercentage` when set. Heads-up: flows that relied on a sliver of the element counting as visible may scroll one step further now. On DeviceLab iOS, frames that arrive pre-clipped to the viewport (Flutter semantics especially) additionally need to hold still across one extra scroll before being accepted, so a 12pt sliver of an 80pt row can't masquerade as fully visible.
+- **Flutter apps were undrivable on the DeviceLab iOS driver** — four stacked causes, each fixed: the Flutter VM fallback was wired only into the WDA path; the driver implemented neither the coordinate-tap step the fallback delivers taps through nor `tapOn: point:`; the fallback's short find windows leaked into the runner's HTTP timeout and cut XCUITest calls off mid-flight; and scroll gestures released mid-motion, so iOS spent the next tap cancelling residual deceleration instead of activating anything — a silent no-op. Scrolls now hold still 250ms before lifting, the same dead-stop lesson the Android agent swipes learned. On the Flutter issue-repro suite the driver goes from 9/19 to 17/19 — ahead of WDA-with-fallback at 14/19; the two remaining failures reproduce open Flutter framework bugs and fail on every driver.
+
+### Contributors
+
+[@zcsteele](https://github.com/zcsteele)
+1. Requested custom properties in JUnit report files ([#84](https://github.com/devicelab-dev/maestro-runner/issues/84))
+
 ## [1.1.24] - 2026-08-16
 
 This release is about **the loop after a failed run**: re-run only what failed with `--retry-failed`, watch what happened with `--record`, and assert list contents exactly with `assertVisible: count:`. Dark mode now works everywhere — web pages and physical iOS devices included — and reports identify the exact CI build they ran against.
