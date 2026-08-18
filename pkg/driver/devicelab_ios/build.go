@@ -32,11 +32,18 @@ func GetRunnerSourcePath() string {
 // runner (and conversely rebuild needlessly across releases that don't touch
 // it). Hashing the ~300K source tree is sub-millisecond.
 func GetRunnerBuildCacheDir(simulatorUDID string) (string, error) {
+	return runnerBuildCacheDirFrom(simulatorUDID, GetRunnerSourcePath())
+}
+
+// runnerBuildCacheDirFrom is GetRunnerBuildCacheDir parametrized on the
+// runner source tree, so embedded-source builds share the same cache
+// keying (identical content hashes to identical cache slots).
+func runnerBuildCacheDirFrom(simulatorUDID, sourcePath string) (string, error) {
 	iosVersion, err := simulatorOSVersion(simulatorUDID)
 	if err != nil {
 		return "", err
 	}
-	srcHash, err := runnerSourceHash(GetRunnerSourcePath())
+	srcHash, err := runnerSourceHash(sourcePath)
 	if err != nil {
 		return "", fmt.Errorf("hash runner source: %w", err)
 	}
@@ -100,7 +107,24 @@ func runnerSourceHash(sourcePath string) (string, error) {
 // First build takes ~30-60s on M-series Macs. Subsequent runs reuse the
 // cache and return in milliseconds.
 func EnsureBuilt(ctx context.Context, simulatorUDID string) (string, error) {
-	sourcePath := GetRunnerSourcePath()
+	return ensureBuiltFrom(ctx, simulatorUDID, GetRunnerSourcePath())
+}
+
+// EnsureBuiltEmbedded is EnsureBuilt for library consumers: it builds
+// from the runner source embedded in this Go module (extracted into the
+// cache on first use) instead of an installed drivers directory. The
+// runner is thereby version-locked to the module the consumer pinned —
+// no maestro-runner installation required, no protocol skew possible.
+func EnsureBuiltEmbedded(ctx context.Context, simulatorUDID string) (string, error) {
+	sourcePath, err := extractEmbeddedRunnerSource()
+	if err != nil {
+		return "", fmt.Errorf("extract embedded runner source: %w", err)
+	}
+	return ensureBuiltFrom(ctx, simulatorUDID, sourcePath)
+}
+
+// ensureBuiltFrom is EnsureBuilt parametrized on the runner source tree.
+func ensureBuiltFrom(ctx context.Context, simulatorUDID, sourcePath string) (string, error) {
 	projectPath := filepath.Join(sourcePath, "DevicelabIOSRunner.xcodeproj")
 	if _, err := os.Stat(projectPath); err != nil {
 		return "", fmt.Errorf(
@@ -110,7 +134,7 @@ func EnsureBuilt(ctx context.Context, simulatorUDID string) (string, error) {
 		)
 	}
 
-	cacheDir, err := GetRunnerBuildCacheDir(simulatorUDID)
+	cacheDir, err := runnerBuildCacheDirFrom(simulatorUDID, sourcePath)
 	if err != nil {
 		return "", fmt.Errorf("resolve build cache dir: %w", err)
 	}
