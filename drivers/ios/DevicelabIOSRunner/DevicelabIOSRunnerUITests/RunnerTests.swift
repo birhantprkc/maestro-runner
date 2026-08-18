@@ -30,7 +30,10 @@ final class RunnerTests: XCTestCase {
 
   static let springboardBundleId = "com.apple.springboard"
   static let defaultRecordingFps: Int32 = 15
+  static let maxListenerRetries = 5
+  static let listenerRetryDelay: TimeInterval = 1.0
   var listener: NWListener?
+  var listenerRetriesRemaining = RunnerTests.maxListenerRetries
   var doneExpectation: XCTestExpectation?
   let app = XCUIApplication()
   lazy var springboard = XCUIApplication(bundleIdentifier: Self.springboardBundleId)
@@ -108,28 +111,7 @@ final class RunnerTests: XCTestCase {
     let queue = DispatchQueue(label: "agent-device.runner")
     let desiredPort = RunnerEnv.resolvePort()
     NSLog("AGENT_DEVICE_RUNNER_DESIRED_PORT=%d", desiredPort)
-    listener = try makeRunnerListener(desiredPort: desiredPort)
-    listener?.stateUpdateHandler = { [weak self] state in
-      switch state {
-      case .ready:
-        NSLog("AGENT_DEVICE_RUNNER_LISTENER_READY")
-        if let listenerPort = self?.listener?.port {
-          NSLog("AGENT_DEVICE_RUNNER_PORT=%d", listenerPort.rawValue)
-        } else {
-          NSLog("AGENT_DEVICE_RUNNER_PORT_NOT_SET")
-        }
-      case .failed(let error):
-        NSLog("AGENT_DEVICE_RUNNER_LISTENER_FAILED=%@", String(describing: error))
-        self?.doneExpectation?.fulfill()
-      default:
-        break
-      }
-    }
-    listener?.newConnectionHandler = { [weak self] conn in
-      conn.start(queue: queue)
-      self?.handle(connection: conn)
-    }
-    listener?.start(queue: queue)
+    startListener(desiredPort: desiredPort, queue: queue)
 
     guard let expectation = doneExpectation else {
       XCTFail("runner expectation was not initialized")
@@ -140,6 +122,62 @@ final class RunnerTests: XCTestCase {
     NSLog("AGENT_DEVICE_RUNNER_WAIT_RESULT=%@", String(describing: result))
     if result != .completed {
       XCTFail("runner wait ended with \(result)")
+    }
+  }
+
+  private func startListener(desiredPort: UInt16, queue: DispatchQueue) {
+    do {
+      let newListener = try makeRunnerListener(desiredPort: desiredPort)
+      listener = newListener
+      newListener.stateUpdateHandler = { [weak self] state in
+        switch state {
+        case .ready:
+          NSLog("AGENT_DEVICE_RUNNER_LISTENER_READY")
+          // A working listener proves recovery — restore the full retry
+          // budget so an occasional network-stack hiccup hours apart
+          // never accumulates into an exit.
+          self?.listenerRetriesRemaining = Self.maxListenerRetries
+          if let listenerPort = self?.listener?.port {
+            NSLog("AGENT_DEVICE_RUNNER_PORT=%d", listenerPort.rawValue)
+          } else {
+            NSLog("AGENT_DEVICE_RUNNER_PORT_NOT_SET")
+          }
+        case .failed(let error):
+          self?.handleListenerFailure(error, desiredPort: desiredPort, queue: queue)
+        default:
+          break
+        }
+      }
+      newListener.newConnectionHandler = { [weak self] conn in
+        conn.start(queue: queue)
+        self?.handle(connection: conn)
+      }
+      newListener.start(queue: queue)
+    } catch {
+      handleListenerFailure(error, desiredPort: desiredPort, queue: queue)
+    }
+  }
+
+  // The listener failing used to end the session immediately, so any
+  // transient failure in the sim's network stack (whose daemons are
+  // known to crash-loop on some runtime/Xcode combinations) silently
+  // killed the runner mid-session. Rebind on the same port instead —
+  // the host only knows this port — and exit only once the budget is
+  // exhausted, with the reason in the log for post-mortems.
+  private func handleListenerFailure(_ error: Error, desiredPort: UInt16, queue: DispatchQueue) {
+    NSLog(
+      "AGENT_DEVICE_RUNNER_LISTENER_FAILED=%@ retriesLeft=%d",
+      String(describing: error), listenerRetriesRemaining)
+    listener?.cancel()
+    listener = nil
+    guard listenerRetriesRemaining > 0 else {
+      NSLog("AGENT_DEVICE_RUNNER_EXIT reason=listener_failed error=%@", String(describing: error))
+      doneExpectation?.fulfill()
+      return
+    }
+    listenerRetriesRemaining -= 1
+    queue.asyncAfter(deadline: .now() + Self.listenerRetryDelay) { [weak self] in
+      self?.startListener(desiredPort: desiredPort, queue: queue)
     }
   }
 

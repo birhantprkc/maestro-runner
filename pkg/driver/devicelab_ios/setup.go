@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -59,6 +60,10 @@ type RunnerHandle struct {
 	// calling cmd.Wait a second time.
 	waitDone chan struct{}
 	waitErr  error
+	// stopping records that Stop was called, so the mid-session death
+	// watcher can tell a requested shutdown from the runner dying on
+	// its own (the distinction the flake post-mortems need).
+	stopping atomic.Bool
 }
 
 // Port returns the resolved listen port.
@@ -75,6 +80,7 @@ func (h *RunnerHandle) Stop() error {
 	if h == nil || h.cmd == nil || h.cmd.Process == nil {
 		return nil
 	}
+	h.stopping.Store(true)
 	// Send SIGTERM first; force-kill after 5s.
 	_ = h.cmd.Process.Signal(syscall.SIGTERM)
 	done := h.waitDone
@@ -139,6 +145,14 @@ func Setup(ctx context.Context, opts SetupOptions) (*Client, *RunnerHandle, erro
 		logsDir := filepath.Join(opts.ArtifactsDir, "logs")
 		_ = os.MkdirAll(logsDir, 0o755)
 		logPath = filepath.Join(logsDir, "runner.log")
+		// Keep previous sessions' logs: they are the only post-mortem
+		// evidence when a runner dies mid-session, and os.Create would
+		// destroy them before anyone can read why the last exit happened.
+		// Three generations, because a death is often followed by a burst
+		// of short failed restarts — one slot would rotate the log that
+		// explains the death away in favor of a near-empty one.
+		_ = os.Rename(filepath.Join(logsDir, "runner.prev.log"), filepath.Join(logsDir, "runner.prev2.log"))
+		_ = os.Rename(logPath, filepath.Join(logsDir, "runner.prev.log"))
 		logFile, err := os.Create(logPath)
 		if err != nil {
 			// Fall back to stderr — better some output than blocking startup.
@@ -291,7 +305,24 @@ func startOnce(ctx context.Context, opts SetupOptions, xctestrun, logPath string
 	_, _ = client.Call(warmCtx, Command{Command: CmdSnapshot})
 	warmCancel()
 
+	announceMidSessionDeath(handle, opts.SimulatorUDID, logPath)
 	return client, handle, nil
+}
+
+// announceMidSessionDeath logs when xcodebuild exits after the runner was
+// declared ready without Stop being requested. Such deaths otherwise
+// surface only as "connection refused" on some later command, with no
+// pointer to the evidence (the runner log's final lines say why it died).
+func announceMidSessionDeath(handle *RunnerHandle, udid, logPath string) {
+	go func() {
+		<-handle.waitDone
+		if handle.stopping.Load() {
+			return
+		}
+		fmt.Fprintf(os.Stderr,
+			"  ⚠ devicelab runner exited mid-session (udid=%s, err=%v) — post-mortem in %s\n",
+			udid, handle.waitErr, logPath)
+	}()
 }
 
 // findXctestrun locates the .xctestrun file under <artifactsDir>/Build/Products/.

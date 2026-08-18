@@ -129,6 +129,7 @@ extension RunnerTests {
   }
 
   private func finish() {
+    NSLog("AGENT_DEVICE_RUNNER_EXIT reason=shutdown_command")
     listener?.cancel()
     listener = nil
     doneExpectation?.fulfill()
