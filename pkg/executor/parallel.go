@@ -97,6 +97,10 @@ func (pr *ParallelRunner) Run(ctx context.Context, flows []flow.Flow) (*RunResul
 		return nil, fmt.Errorf("no workers available")
 	}
 
+	// Read the previous run's timings before the skeleton below overwrites
+	// the report this reads.
+	priorDurations := priorFlowDurations(pr.config.OutputDir)
+
 	// Build shared report skeleton
 	builderCfg := report.BuilderConfig{
 		OutputDir:     pr.config.OutputDir,
@@ -125,10 +129,11 @@ func (pr *ParallelRunner) Run(ctx context.Context, flows []flow.Flow) (*RunResul
 	indexWriter.Start()
 	startTime := time.Now()
 
-	// Create work queue with flow indices
+	// Create work queue with flow indices, longest known flow first so the
+	// slowest work is not picked up last (see longestFirst).
 	workQueue := make(chan workItem, len(flows))
-	for i, f := range flows {
-		workQueue <- workItem{flow: f, index: i}
+	for _, i := range longestFirst(flows, priorDurations) {
+		workQueue <- workItem{flow: flows[i], index: i}
 	}
 	close(workQueue)
 
