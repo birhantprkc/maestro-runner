@@ -658,8 +658,55 @@ func (fr *FlowRunner) executeTakeScreenshot(
 	return result, reportPath
 }
 
-func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *core.CommandResult {
+// screenshotSettleThreshold matches waitForAnimationToEnd: two frames within
+// 0.5% of each other count as the same frame.
+const screenshotSettleThreshold = 0.005
+
+// screenshotSettleTimeout bounds the wait. A screen that never settles — a
+// spinner, a video, a blinking caret — must not hang the step, so this falls
+// through to comparing whatever was captured last rather than failing.
+// A variable so tests can exercise the give-up path without a real wait.
+var screenshotSettleTimeout = 2 * time.Second
+
+// captureSettledScreenshot re-captures until two consecutive frames agree,
+// which is what makes a screenshot comparison reproducible: capturing mid
+// animation produces a baseline nothing will ever match again, and the
+// resulting failure looks like a real visual regression.
+//
+// The drivers already do this for waitForAnimationToEnd; assertScreenshot was
+// simply never wired to it. Doing it here covers every driver at once.
+func (fr *FlowRunner) captureSettledScreenshot(step *flow.AssertScreenshotStep) *core.CommandResult {
+	deadline := time.Now().Add(screenshotSettleTimeout)
+
 	result := fr.driver.Execute(step)
+	if !result.Success {
+		return result
+	}
+	prev, ok := result.Data.([]byte)
+	if !ok || len(prev) == 0 {
+		return result // let the caller report the empty-capture error
+	}
+
+	for time.Now().Before(deadline) {
+		next := fr.driver.Execute(step)
+		if !next.Success {
+			return result // a failed re-capture is not worse than the frame we hold
+		}
+		curr, ok := next.Data.([]byte)
+		if !ok || len(curr) == 0 {
+			return result
+		}
+		if core.ImageDifference(prev, curr) <= screenshotSettleThreshold {
+			return next
+		}
+		prev = curr
+		result = next
+	}
+	return result
+}
+
+func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *core.CommandResult {
+	result := fr.captureSettledScreenshot(step)
 	if !result.Success {
 		return result
 	}
