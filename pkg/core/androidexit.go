@@ -134,11 +134,54 @@ func (e AndroidExitInfo) IsLowMemory() bool {
 	return strings.Contains(r, "LOW MEMORY") || strings.Contains(r, "LMK")
 }
 
+// IsResourceKill reports whether the system killed the process for using too
+// much of something — CPU, binder traffic, wakelocks. Observed in the wild as
+// `reason=9 (EXCESSIVE RESOURCE USAGE)`; it is the app misbehaving, not the
+// runner stopping it, so it belongs in a failure message.
+func (e AndroidExitInfo) IsResourceKill() bool {
+	return strings.Contains(strings.ToUpper(e.Reason), "EXCESSIVE")
+}
+
 // Noteworthy reports whether this death is worth failing or annotating a flow
-// with. A force-stop or a clean exit is the runner's own doing and says nothing
-// about the app.
+// with. A force-stop, a clean exit, or the user swiping the app away is the
+// runner's or the system's normal business and says nothing about the app.
 func (e AndroidExitInfo) Noteworthy() bool {
-	return e.IsCrash() || e.IsANR() || e.IsLowMemory()
+	return e.IsCrash() || e.IsANR() || e.IsLowMemory() || e.IsResourceKill()
+}
+
+// severity orders competing explanations. A process can die more than once in a
+// flow — crash, restart, killed again — and the newest entry is not necessarily
+// the most informative, so the worst one wins rather than the latest.
+func (e AndroidExitInfo) severity() int {
+	switch {
+	case e.IsCrash():
+		return 4
+	case e.IsANR():
+		return 3
+	case e.IsLowMemory():
+		return 2
+	case e.IsResourceKill():
+		return 1
+	default:
+		return 0
+	}
+}
+
+// MostSignificant returns the entry that best explains why the app went away,
+// or false when nothing noteworthy is recorded.
+func MostSignificant(infos []AndroidExitInfo) (AndroidExitInfo, bool) {
+	var best AndroidExitInfo
+	found := false
+	for _, info := range infos {
+		if !info.Noteworthy() {
+			continue
+		}
+		// Entries arrive newest first, so > keeps the newest of equals.
+		if !found || info.severity() > best.severity() {
+			best, found = info, true
+		}
+	}
+	return best, found
 }
 
 // Summary renders a one-line explanation for a flow failure.
@@ -156,12 +199,28 @@ func (e AndroidExitInfo) Summary() string {
 		what = "stopped responding (ANR)"
 	case e.IsCrash():
 		what = "crashed (" + e.Reason + ")"
+	case e.IsResourceKill():
+		what = "was killed for excessive resource use (" + e.Subreason + ")"
 	default:
 		what = "exited: " + e.Reason
 	}
 
-	if e.PSS != "" || e.RSS != "" {
+	// The platform reports 0.00 when it has no measurement — printing that
+	// reads as a broken number rather than as information.
+	if meaningfulSize(e.PSS) || meaningfulSize(e.RSS) {
 		return who + " " + what + " at pss=" + e.PSS + " rss=" + e.RSS
 	}
 	return who + " " + what
+}
+
+// meaningfulSize reports whether a pss/rss reading carries information. The
+// platform prints 0.00 when it has no measurement, and units vary between
+// entries ("58MB" on one, "0.00" on the next), so this is a string check rather
+// than arithmetic.
+func meaningfulSize(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "", "0", "0.00", "0B", "0MB", "0.00MB":
+		return false
+	}
+	return true
 }

@@ -970,6 +970,12 @@ func (d *Driver) launchApp(step *flow.LaunchAppStep) *core.CommandResult {
 	}
 	d.currentAppID = appID // remember for mid-flow crash detection
 
+	// Forget deaths recorded before this launch. exit-info persists across
+	// runs, so without this a crash from an earlier run — or the force-stop
+	// below — would be reported as this flow's. Clearing here means any entry
+	// found later belongs to the app this launch started.
+	d.clearExitHistory(appID)
+
 	// Stop app first if requested (default: true)
 	if step.StopApp == nil || *step.StopApp {
 		if _, err := d.device.Shell("am force-stop " + appID); err != nil {

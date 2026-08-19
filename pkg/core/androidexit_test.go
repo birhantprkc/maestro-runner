@@ -96,3 +96,58 @@ func TestAndroidExitInfo_Summary(t *testing.T) {
 		t.Errorf("Summary() = %q", got)
 	}
 }
+
+func TestMostSignificant(t *testing.T) {
+	t.Run("a crash outranks a later resource kill", func(t *testing.T) {
+		// Observed on a device: `am crash` then the restarted process killed
+		// for excessive binder traffic, which lands newest.
+		infos := []AndroidExitInfo{
+			{Reason: "EXCESSIVE RESOURCE USAGE", Subreason: "EXCESSIVE CPU USAGE"},
+			{Reason: "APP CRASH(EXCEPTION)"},
+		}
+		got, ok := MostSignificant(infos)
+		if !ok || !got.IsCrash() {
+			t.Errorf("got %+v, want the crash", got)
+		}
+	})
+
+	t.Run("nothing noteworthy", func(t *testing.T) {
+		if _, ok := MostSignificant([]AndroidExitInfo{{Reason: "USER REQUESTED"}}); ok {
+			t.Error("a force-stop must not be reported as an explanation")
+		}
+		if _, ok := MostSignificant(nil); ok {
+			t.Error("no entries must yield no explanation")
+		}
+	})
+
+	t.Run("newest of equal severity wins", func(t *testing.T) {
+		infos := []AndroidExitInfo{{Reason: "ANR", Process: "newest"}, {Reason: "ANR", Process: "older"}}
+		got, _ := MostSignificant(infos)
+		if got.Process != "newest" {
+			t.Errorf("got %q, want the newest of equally severe entries", got.Process)
+		}
+	})
+
+	t.Run("a resource kill is reported when it is all there is", func(t *testing.T) {
+		got, ok := MostSignificant([]AndroidExitInfo{{Reason: "EXCESSIVE RESOURCE USAGE", Subreason: "EXCESSIVE CPU USAGE"}})
+		if !ok || !got.IsResourceKill() {
+			t.Fatalf("got %+v, want the resource kill", got)
+		}
+		if want := "the app was killed for excessive resource use (EXCESSIVE CPU USAGE)"; got.Summary() != want {
+			t.Errorf("Summary() = %q, want %q", got.Summary(), want)
+		}
+	})
+}
+
+func TestAndroidExitInfo_SummaryOmitsEmptyMemoryReadings(t *testing.T) {
+	// The platform reports 0.00 when it has no measurement; printing that reads
+	// as a broken number rather than as information.
+	zeroed := AndroidExitInfo{Process: "com.example", Reason: "APP CRASH(EXCEPTION)", PSS: "0.00", RSS: "0.00"}
+	if got := zeroed.Summary(); got != "com.example crashed (APP CRASH(EXCEPTION))" {
+		t.Errorf("Summary() = %q, want no pss/rss suffix", got)
+	}
+	real := AndroidExitInfo{Process: "com.example", Reason: "LOW MEMORY", PSS: "412MB", RSS: "500MB"}
+	if got := real.Summary(); got != "com.example was killed for memory at pss=412MB rss=500MB" {
+		t.Errorf("Summary() = %q, want the real readings kept", got)
+	}
+}

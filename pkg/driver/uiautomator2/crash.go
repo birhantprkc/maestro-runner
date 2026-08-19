@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/devicelab-dev/maestro-runner/pkg/logger"
+
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
 )
 
@@ -31,9 +33,11 @@ func (d *Driver) appTerminationError() error {
 		return nil // process alive
 	}
 
-	// Process is gone. Look for a crash/ANR in the crash buffer to explain why.
+	// Process is gone. Explain why, most authoritative source first.
 	summary := "app '" + d.currentAppID + "' is no longer running (crashed or was terminated during the flow)"
-	if logcat, lerr := d.device.Shell("logcat -d -b crash -t 400"); lerr == nil {
+	if explanation := d.exitExplanation(); explanation != "" {
+		summary = explanation
+	} else if logcat, lerr := d.device.Shell("logcat -d -b crash -t 400"); lerr == nil {
 		if s, found := core.AndroidCrashSummary(logcat, d.currentAppID); found {
 			summary = d.currentAppID + ": " + s
 		}
@@ -50,4 +54,42 @@ func (d *Driver) notFoundOrCrash(orig error) error {
 		return termErr
 	}
 	return orig
+}
+
+// clearExitHistory forgets process deaths recorded before now, so a later
+// lookup cannot attribute an earlier run's crash — or the runner's own
+// force-stop — to this flow. Best-effort: the command is unavailable before
+// API 30, and failing to clear is not worth failing a launch over.
+func (d *Driver) clearExitHistory(appID string) {
+	if d.device == nil || appID == "" {
+		return
+	}
+	if _, err := d.device.Shell("cmd activity clear-exit-info " + core.ShellQuote(appID)); err != nil {
+		logger.Debug("could not clear exit-info for %s: %v", appID, err)
+	}
+}
+
+// exitExplanation asks the platform why the app's process went away.
+//
+// This is the only host-reachable source of LOW MEMORY: an lmkd kill leaves
+// nothing in logcat, so without it an app killed for memory is
+// indistinguishable from one that merely stopped. It also carries pss and rss
+// as measured at the moment of death.
+//
+// Returns "" when there is nothing noteworthy, which includes the common case
+// of the runner having stopped the app itself.
+func (d *Driver) exitExplanation() string {
+	if d.device == nil || d.currentAppID == "" {
+		return ""
+	}
+	out, err := d.device.Shell("dumpsys activity exit-info " + core.ShellQuote(d.currentAppID))
+	if err != nil {
+		return ""
+	}
+	// A process can die more than once in a flow — crash, restart, killed
+	// again — and the newest record is not always the most informative.
+	if info, ok := core.MostSignificant(core.ParseAndroidExitInfo(out)); ok {
+		return info.Summary()
+	}
+	return ""
 }
