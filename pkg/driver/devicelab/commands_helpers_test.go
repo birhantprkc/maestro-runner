@@ -2330,7 +2330,16 @@ func TestLaunchApp_ClearState_FallsBackToShell(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("launchApp should still succeed via shell fallback: %v", res.Error)
 	}
-	if len(shell.commands) == 0 || !strings.Contains(shell.commands[0], "pm clear com.test.app") {
+	// Asserts the fallback ran, not that it ran first — launchApp issues other
+	// bookkeeping shell commands too, and their order is not the contract.
+	var cleared bool
+	for _, cmd := range shell.commands {
+		if strings.Contains(cmd, "pm clear com.test.app") {
+			cleared = true
+			break
+		}
+	}
+	if !cleared {
 		t.Errorf("expected pm clear fallback in shell, got %v", shell.commands)
 	}
 }

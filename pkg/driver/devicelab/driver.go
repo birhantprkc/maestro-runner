@@ -96,6 +96,10 @@ type Driver struct {
 	info   *core.PlatformInfo
 	device ShellExecutor // for ADB commands (fallback)
 
+	// currentAppID is the app the flow last launched, remembered so a
+	// mid-flow death can be explained rather than surfacing as "not found".
+	currentAppID string
+
 	// Parent context for element-finding operations (nil = context.Background())
 	ctx context.Context
 
