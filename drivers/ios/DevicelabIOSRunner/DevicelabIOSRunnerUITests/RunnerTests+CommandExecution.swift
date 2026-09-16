@@ -445,6 +445,12 @@ extension RunnerTests {
       let y = Double(matched.frame.midY)
       let touchFrame = resolvedTouchVisualizationFrame(app: activeApp, x: x, y: y)
       var outcome = RunnerInteractionOutcome.performed
+      // A no-op recovery guard: capture the screen just before the tap so we
+      // can tell, after, whether the tap actually did anything. Only when the
+      // activation-retry path is enabled (default on) — otherwise we pay
+      // nothing.
+      let beforeTap: RunnerImage? = tapActivationRetryEnabled
+        ? XCUIScreen.main.screenshot().image : nil
       let timing = measureGesture {
         withTemporaryScrollIdleTimeoutIfSupported(activeApp) {
           outcome = tapAt(app: activeApp, x: x, y: y)
@@ -452,6 +458,26 @@ extension RunnerTests {
       }
       if let response = unsupportedResponse(for: outcome) {
         return response
+      }
+      // A coordinate tap on some React Native controls reports success but
+      // never fires the control's handler — the navigation simply does not
+      // happen (observed on native-stack "Pop to top" after a deep push; WDA
+      // passes the same flow). Detect that exact no-op — the screen did not
+      // change AND the same element is still on screen and hittable — and
+      // re-tap through the element's activation point, which resolves the
+      // handler the way WDA's element.tap() does. Gated on a proven no-op, so
+      // a normal tap costs one screenshot and no extra tap. The primary tap
+      // and its returned x/y are unchanged, so inputText's tapped-coordinate
+      // coupling still holds.
+      if let before = beforeTap {
+        Thread.sleep(forTimeInterval: 0.3)
+        let after = XCUIScreen.main.screenshot().image
+        if computePixelDiffFraction(before, after) < tapNoOpDiffThreshold,
+           let live = liveElementForSnapshot(activeApp, matched),
+           live.exists, live.isHittable {
+          NSLog("DL_TAP_ACTIVATION_RETRY selector=%@", selectorValue)
+          live.tap()
+        }
       }
       // Note: response returns the raw element-relative x/y, not
       // touchFrame.x/y. touchFrame applies the appFrame origin (screen-

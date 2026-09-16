@@ -95,6 +95,13 @@ extension RunnerTests {
     }
 
     guard let context = makeSnapshotTraversalContext(app: app, options: options) else {
+      // The public snapshot threw (a deep React Native tree makes the AX server
+      // answer kAXErrorIllegalArgument), which would otherwise hand back an
+      // empty tree — the devicelab-vs-WDA RN gap. Recover the tree through the
+      // private AX client instead of returning nothing.
+      if let fallback = privateAXFallbackPayload(app: app, options: options) {
+        return fallback
+      }
       return DataPayload(nodes: [], truncated: false, appState: appStateString(app))
     }
 
@@ -195,6 +202,16 @@ extension RunnerTests {
         truncated = truncated || didTruncateFallback
       }
 
+    }
+
+    // A foreground app whose public snapshot yielded only the root node is the
+    // other half of the RN gap: the serializer returned a childless tree on a
+    // screen that plainly has content. Try the private AX path and prefer it
+    // when it recovers more than the root.
+    if nodes.count <= 1, app.state == .runningForeground,
+       let fallback = privateAXFallbackPayload(app: app, options: options),
+       (fallback.nodes?.count ?? 0) > nodes.count {
+      return fallback
     }
 
     return DataPayload(nodes: nodes, truncated: truncated, appState: appStateString(app))

@@ -1841,6 +1841,58 @@ extension RunnerTests {
   }
 #endif
 
+  // tapNoOpDiffThreshold is the pixel-diff fraction below which the screen is
+  // considered unchanged after a tap. A real navigation changes far more than
+  // this; a button's brief press highlight has faded by the 0.3s settle. Used
+  // only to detect a tap that fired nothing, so it can be re-tried via the
+  // element's activation point.
+  var tapNoOpDiffThreshold: Double { 0.004 }
+
+  // tapActivationRetryEnabled gates the no-op recovery re-tap. Default OFF —
+  // it closes the native-stack "Pop to top" no-op flows, but the no-op probe
+  // costs a screenshot plus a 0.3s settle on EVERY tap, which erodes the
+  // driver's speed lead, and the pixel-diff no-op signal is not yet precise
+  // enough to ship on by default. Opt in with
+  // DEVICELAB_ENABLE_TAP_ACTIVATION_RETRY=1 until the probe is made cheap and
+  // precise (a targeted post-tap check, not a blanket screenshot+sleep).
+  var tapActivationRetryEnabled: Bool {
+    RunnerEnv.isTruthy("DEVICELAB_ENABLE_TAP_ACTIVATION_RETRY")
+  }
+
+  // liveElementForSnapshot resolves the live XCUIElement behind a matched
+  // snapshot, so the no-op recovery can re-tap it through its activation point
+  // (a snapshot has no tap()). Queries by the snapshot's own type + identifier
+  // / label, disambiguating multiple matches by frame proximity. Returns nil
+  // when it cannot be uniquely resolved — the caller then leaves the tap as
+  // the coordinate tap it already did.
+  func liveElementForSnapshot(_ app: XCUIApplication, _ snapshot: XCUIElementSnapshot) -> XCUIElement? {
+    let id = snapshot.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    let label = snapshot.label.trimmingCharacters(in: .whitespacesAndNewlines)
+    var clauses: [String] = []
+    var args: [String] = []
+    if !id.isEmpty {
+      clauses.append("identifier == %@")
+      args.append(id)
+    }
+    if !label.isEmpty {
+      clauses.append("label == %@")
+      args.append(label)
+    }
+    guard !clauses.isEmpty else { return nil }
+    let predicate = NSPredicate(format: clauses.joined(separator: " OR "), argumentArray: args)
+    let matches = app.descendants(matching: snapshot.elementType)
+      .matching(predicate)
+      .allElementsBoundByIndex
+    if matches.isEmpty { return nil }
+    if matches.count == 1 { return matches[0] }
+    let target = snapshot.frame
+    return matches.min(by: { a, b in
+      let da = abs(a.frame.midX - target.midX) + abs(a.frame.midY - target.midY)
+      let db = abs(b.frame.midX - target.midX) + abs(b.frame.midY - target.midY)
+      return da < db
+    })
+  }
+
   private func tapElementCenter(app: XCUIApplication, element: XCUIElement) {
     let frame = element.frame
     if !frame.isEmpty {

@@ -1,0 +1,109 @@
+package devicelab_ios
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// maxRelaunchesPerWindow bounds how many times the supervisor relaunches a
+// dead runner before giving up, per relaunchWindow. The bound exists for the
+// deterministic-crash case: a command that kills the runner every time (the
+// keyboard-query XCTest abort we hit on TestHive) would otherwise relaunch
+// forever. read-only commands are replayed after a relaunch and could re-crash;
+// actions are not replayed, so in practice one crasher costs at most this many
+// relaunches, then later (different) commands proceed on the live runner.
+const maxRelaunchesPerWindow = 5
+
+// relaunchWindow resets the relaunch counter once the runner has been healthy
+// for this long, so an occasional crash over a long suite does not exhaust the
+// budget that a burst of deterministic crashes is meant to cap.
+const relaunchWindow = 2 * time.Minute
+
+// Supervisor keeps a devicelab runner alive across mid-session crashes. It
+// owns the current process handle and hands the Client a reviver that
+// relaunches on a transport failure. One supervisor per Setup; commands to a
+// devicelab runner are serial, so its locking only guards the rare concurrent
+// failure, not a hot path.
+type Supervisor struct {
+	opts      SetupOptions
+	xctestrun string
+	logPath   string
+
+	mu            sync.Mutex
+	handle        atomic.Pointer[RunnerHandle]
+	stopping      atomic.Bool
+	relaunches    int
+	lastRelaunch  time.Time
+	windowStarted time.Time
+}
+
+// newSupervisor builds the supervisor for a freshly started runner, points
+// the handle's Stop() at it, and installs the reviver on the client. It is
+// wired inside Setup; nothing else needs to call it.
+func newSupervisor(opts SetupOptions, xctestrun, logPath string, client *Client, handle *RunnerHandle) *Supervisor {
+	s := &Supervisor{opts: opts, xctestrun: xctestrun, logPath: logPath}
+	s.handle.Store(handle)
+	s.windowStarted = time.Now()
+	handle.sup = s
+	client.SetReviver(s.revive)
+	return s
+}
+
+// revive relaunches the runner after a transport failure and returns the port
+// the new process listens on. failedPort is the port the failing call used:
+// if the live handle is already on a different port, another failed call has
+// relaunched and this one simply re-points, so we do not relaunch twice.
+func (s *Supervisor) revive(ctx context.Context, failedPort int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopping.Load() {
+		return 0, fmt.Errorf("devicelab runner is shutting down")
+	}
+	if cur := s.handle.Load(); cur != nil && cur.port != failedPort {
+		// A concurrent (or immediately prior) failed call already relaunched.
+		return cur.port, nil
+	}
+
+	now := time.Now()
+	if now.Sub(s.windowStarted) > relaunchWindow {
+		s.relaunches = 0
+		s.windowStarted = now
+	}
+	if s.relaunches >= maxRelaunchesPerWindow {
+		return 0, fmt.Errorf(
+			"devicelab runner relaunch limit (%d in %s) reached — the runner keeps dying, likely a deterministic crash",
+			maxRelaunchesPerWindow, relaunchWindow,
+		)
+	}
+	s.relaunches++
+	s.lastRelaunch = now
+
+	if cur := s.handle.Load(); cur != nil {
+		_ = cur.stopProcess()
+	}
+
+	fmt.Fprintf(os.Stderr, "  ↻ devicelab runner died mid-session — relaunching (%d/%d)\n",
+		s.relaunches, maxRelaunchesPerWindow)
+
+	_, handle, err := startOnce(ctx, s.opts, s.xctestrun, s.logPath)
+	if err != nil {
+		return 0, fmt.Errorf("devicelab runner relaunch failed: %w", err)
+	}
+	s.handle.Store(handle)
+	return handle.port, nil
+}
+
+// stop marks the supervisor shutting down (so a racing revive gives up) and
+// terminates the live process.
+func (s *Supervisor) stop() error {
+	s.stopping.Store(true)
+	if cur := s.handle.Load(); cur != nil {
+		return cur.stopProcess()
+	}
+	return nil
+}

@@ -64,6 +64,11 @@ type RunnerHandle struct {
 	// watcher can tell a requested shutdown from the runner dying on
 	// its own (the distinction the flake post-mortems need).
 	stopping atomic.Bool
+	// sup, when set, owns restart-on-crash: the handle callers hold is the
+	// ORIGINAL process, but after a relaunch the live process is a
+	// different one the supervisor tracks. Stop() delegates through it so
+	// shutdown always targets the process that is actually running.
+	sup *Supervisor
 }
 
 // Port returns the resolved listen port.
@@ -77,6 +82,19 @@ func (h *RunnerHandle) Host() string { return h.host }
 // `shutdown` command first to let the runner exit cleanly; this is the
 // fallback.
 func (h *RunnerHandle) Stop() error {
+	// When a supervisor owns this runner, the live process may be a
+	// relaunched one, not h.cmd. Route through the supervisor so we stop
+	// what is actually running (and mark it stopping so revive gives up).
+	if h != nil && h.sup != nil {
+		return h.sup.stop()
+	}
+	return h.stopProcess()
+}
+
+// stopProcess terminates this handle's own xcodebuild subprocess (SIGTERM,
+// then force-kill after 5s). The supervisor calls it directly to avoid the
+// Stop -> sup.stop -> Stop delegation loop.
+func (h *RunnerHandle) stopProcess() error {
 	if h == nil || h.cmd == nil || h.cmd.Process == nil {
 		return nil
 	}
@@ -222,6 +240,10 @@ func Setup(ctx context.Context, opts SetupOptions) (*Client, *RunnerHandle, erro
 			if attempt > 1 {
 				fmt.Fprintf(os.Stderr, "  ✓ Runner started on attempt %d/%d\n", attempt, maxStartupAttempts)
 			}
+			// Wire restart-on-crash: if the runner dies mid-session, the
+			// next command relaunches it instead of the whole rest of the
+			// suite failing with "connection refused".
+			newSupervisor(opts, xctestrun, logPath, client, handle)
 			return client, handle, nil
 		}
 		// Deterministic configuration failures won't be fixed by retrying —
