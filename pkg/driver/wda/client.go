@@ -43,7 +43,6 @@ func (c *Client) CreateSession(bundleID string, alertAction string) error {
 		"bundleId":                bundleID,
 		"shouldWaitForQuiescence": false,
 		"waitForIdleTimeout":      0,
-		"shouldUseTestManagerForVisibilityDetection": false,
 	}
 	if alertAction != "" {
 		alwaysMatch["defaultAlertAction"] = alertAction

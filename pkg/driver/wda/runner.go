@@ -449,8 +449,14 @@ func (r *Runner) Cleanup() {
 // getBuildCacheDir returns the cache directory path for this specific configuration.
 // Format: ~/.maestro-runner/cache/wda-builds/{config-name}/
 // Examples:
-//   - Simulator: sim-ios18.5-iphone/
-//   - Real device: device-ios18.0-teamABC123/
+//   - Simulator: sim-ios18.5-iphone-wda16.12.8/
+//   - Real device: device-ios18.0-teamABC123-wda16.12.8/
+//
+// The bundled WebDriverAgent version is part of the name: the cache is
+// accepted on the presence of an xctestrun alone, so without it a WDA
+// upgrade (a release, or `wda update`) kept launching the build products of
+// the previous version for as long as the simulator's iOS version stayed
+// the same.
 func (r *Runner) getBuildCacheDir() (string, error) {
 	// Get device info
 	isSimulator, err := r.isSimulator()
@@ -478,6 +484,9 @@ func (r *Runner) getBuildCacheDir() (string, error) {
 	}
 	if r.wdaBundleID != "" {
 		configName += "-bundle" + r.wdaBundleID
+	}
+	if wdaVersion, verr := GetLocalWDAVersion(); verr == nil && wdaVersion != "" {
+		configName += "-wda" + wdaVersion
 	}
 
 	cacheDir := filepath.Join(config.GetCacheDir(), "wda-builds", configName)

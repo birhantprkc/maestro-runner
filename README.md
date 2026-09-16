@@ -84,7 +84,7 @@ maestro-runner test --parallel 3 flows/                                 # Parall
 - **DeviceLab driver** — Optional on-device Android driver via WebSocket, ~2x faster than UIAutomator2 and ~5x faster than Maestro CLI. Just add `--driver devicelab`
 - **Parallel execution** — Dynamic work distribution across devices, not static sharding. Faster devices pick up more tests automatically, so no device sits idle
 - **App install built-in** — `--app-file app.apk` installs the app before testing, so you always test the right build
-- **Wide OS compatibility** — Android 5.0+ (API 21+) and iOS 12.0+, no version restrictions
+- **Wide OS compatibility** — Android 5.0+ (API 21+) and iOS 15.0+, no version restrictions
 - **Reports** — HTML, JUnit XML, and Allure-compatible reports out of the box
 - **Clear error messages** — `element not found: text="Login"` instead of `io.grpc.StatusRuntimeException: UNKNOWN`
 - **Pre-flight validation** — Catches flow errors, circular dependencies, and missing files before execution starts
