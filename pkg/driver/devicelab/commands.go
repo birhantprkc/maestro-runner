@@ -1102,6 +1102,10 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	// Height of a flush candidate awaiting confirmation, or -1 for none.
 	pendingHeight := -1
 
+	// Stop early when the surface stops moving — a target that is not in the
+	// list should not cost every scroll the step allows.
+	var progress core.ScrollProgress
+
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		_, info, err := d.findElement(step.Element, true, 1000)
 		if err == nil && info != nil {
@@ -1132,6 +1136,10 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 			return errorResult(err, "Failed to find element")
 		}
 
+		if sig, ok := d.scrollSurfaceSignature(); ok && progress.Observe(sig) {
+			return errorResult(fmt.Errorf("element not found"), fmt.Sprintf("Element not found: scrolling %s made no progress after %d scrolls (end of content?)", direction, i))
+		}
+
 		if err := d.performScroll(direction, width, height, step.Engine, 0.3, scrollMs); err != nil {
 			return errorResult(err, fmt.Sprintf("Failed to scroll: %v", err))
 		}
@@ -1140,6 +1148,17 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	}
 
 	return errorResult(fmt.Errorf("element not found"), fmt.Sprintf("Element not found after %d scrolls", maxScrolls))
+}
+
+// scrollSurfaceSignature reduces the current page source to a key for
+// core.ScrollProgress. A capture that cannot be read reports ok=false and is
+// not observed, so a hiccup never passes for the end of the content.
+func (d *Driver) scrollSurfaceSignature() (string, bool) {
+	source, err := d.client.Source()
+	if err != nil || source == "" {
+		return "", false
+	}
+	return core.ScrollSignature(source), true
 }
 
 // performScroll dispatches a scroll gesture using the engine selected by the

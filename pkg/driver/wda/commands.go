@@ -703,6 +703,10 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	}
 	deadline := time.Now().Add(timeout)
 
+	// Stop early when the surface stops moving — a target that is not in the
+	// list should not cost every scroll the step allows.
+	var progress core.ScrollProgress
+
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		info, err := d.findElement(step.Element, true, 1000)
 		if err == nil && info != nil {
@@ -716,6 +720,10 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 			}
 		}
 
+		if sig, ok := d.scrollSurfaceSignature(); ok && progress.Observe(sig) {
+			return errorResult(fmt.Errorf("element not found after scrolling"), fmt.Sprintf("Element not found: %s — scrolling %s made no progress after %d scrolls (end of content?)", selectorDesc(step.Element), direction, i))
+		}
+
 		// Scroll
 		scrollStep := &flow.ScrollStep{Direction: direction, Speed: step.Speed}
 		result := d.scroll(scrollStep)
@@ -727,6 +735,17 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	}
 
 	return errorResult(fmt.Errorf("element not found after scrolling"), fmt.Sprintf("Element not found: %s", selectorDesc(step.Element)))
+}
+
+// scrollSurfaceSignature reduces the current page source to a key for
+// core.ScrollProgress. A capture that cannot be read reports ok=false and is
+// not observed, so a hiccup never passes for the end of the content.
+func (d *Driver) scrollSurfaceSignature() (string, bool) {
+	source, err := d.client.Source()
+	if err != nil || source == "" {
+		return "", false
+	}
+	return core.ScrollSignature(source), true
 }
 
 func (d *Driver) swipe(step *flow.SwipeStep) *core.CommandResult {

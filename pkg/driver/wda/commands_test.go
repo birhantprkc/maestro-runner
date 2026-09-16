@@ -2,6 +2,7 @@ package wda
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -4496,6 +4497,7 @@ func TestToggleAirplaneModeTapFails(t *testing.T) {
 
 func TestScrollUntilVisibleRespectsMaxScrolls(t *testing.T) {
 	scrollCount := 0
+	captures := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		path := r.URL.Path
@@ -4506,12 +4508,15 @@ func TestScrollUntilVisibleRespectsMaxScrolls(t *testing.T) {
 			return
 		}
 		if strings.HasSuffix(path, "/source") {
-			// Element never found
+			// Element never found; one row drifts on every capture so the
+			// list reads as still moving and maxScrolls stays the limit.
+			captures++
 			jsonResponse(w, map[string]interface{}{
-				"value": `<AppiumAUT>
+				"value": fmt.Sprintf(`<AppiumAUT>
   <XCUIElementTypeApplication name="TestApp" enabled="true" visible="true" x="0" y="0" width="390" height="844">
+    <XCUIElementTypeStaticText name="Other" label="Other" enabled="true" visible="true" x="20" y="%d" width="200" height="40"/>
   </XCUIElementTypeApplication>
-</AppiumAUT>`,
+</AppiumAUT>`, 100+captures),
 			})
 			return
 		}
@@ -5224,5 +5229,52 @@ func TestSwipeFromElementPointStartsAtPoint(t *testing.T) {
 	}
 	if toX >= fromX {
 		t.Errorf("left swipe should move leftwards, got fromX=%.0f toX=%.0f", fromX, toX)
+	}
+}
+
+func TestScrollUntilVisibleStopsWhenScreenStopsMoving(t *testing.T) {
+	// The same source on every read: a list at its end. Two scrolls that
+	// change nothing are proof enough — the loop must not spend the other 18.
+	scrollCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := r.URL.Path
+		switch {
+		case strings.Contains(path, "/dragfromtoforduration"):
+			scrollCount++
+			jsonResponse(w, map[string]interface{}{"status": 0})
+		case strings.HasSuffix(path, "/source"):
+			jsonResponse(w, map[string]interface{}{
+				"value": `<AppiumAUT>
+  <XCUIElementTypeApplication name="TestApp" enabled="true" visible="true" x="0" y="0" width="390" height="844">
+    <XCUIElementTypeStaticText name="Last row" label="Last row" enabled="true" visible="true" x="20" y="780" width="200" height="40"/>
+  </XCUIElementTypeApplication>
+</AppiumAUT>`,
+			})
+		case strings.Contains(path, "/window/size"):
+			jsonResponse(w, map[string]interface{}{
+				"value": map[string]interface{}{"width": 390.0, "height": 844.0},
+			})
+		default:
+			jsonResponse(w, map[string]interface{}{"status": 0})
+		}
+	}))
+	defer server.Close()
+	driver := createTestDriver(server)
+
+	result := driver.scrollUntilVisible(&flow.ScrollUntilVisibleStep{
+		Element:   flow.Selector{Text: "NonExistent"},
+		Direction: "down",
+		BaseStep:  flow.BaseStep{TimeoutMs: 60000},
+	})
+
+	if result.Success {
+		t.Fatal("expected failure when the element is not in the list")
+	}
+	if scrollCount != 2 {
+		t.Errorf("expected 2 scrolls before the no-progress stop, got %d", scrollCount)
+	}
+	if !strings.Contains(result.Message, "made no progress") {
+		t.Errorf("message should name the reason, got %q", result.Message)
 	}
 }

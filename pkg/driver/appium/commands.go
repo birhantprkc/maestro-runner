@@ -368,6 +368,10 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 	partiallyVisible := false
 	// Height of a flush candidate awaiting confirmation, or -1 for none.
 	pendingHeight := -1
+	// Stop early when the surface stops moving — a target that is not in the
+	// list should not cost every scroll the step allows.
+	var progress core.ScrollProgress
+
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		if err := d.parentContext().Err(); err != nil {
 			return errorResult(fmt.Errorf("scroll cancelled: %w", err), "")
@@ -405,6 +409,14 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 			}
 		}
 
+		if sig, ok := d.scrollSurfaceSignature(); ok && progress.Observe(sig) {
+			reason := fmt.Sprintf("scrolling %s made no progress after %d scrolls (end of content?)", direction, i)
+			if partiallyVisible {
+				return errorResult(fmt.Errorf("element found but never sufficiently visible after scrolling"), reason)
+			}
+			return errorResult(fmt.Errorf("element not found after scrolling"), reason)
+		}
+
 		// Scroll
 		d.scroll(&flow.ScrollStep{Direction: direction, Speed: step.Speed})
 		time.Sleep(300 * time.Millisecond)
@@ -414,6 +426,17 @@ func (d *Driver) scrollUntilVisible(step *flow.ScrollUntilVisibleStep) *core.Com
 		return errorResult(fmt.Errorf("element found but never sufficiently visible after scrolling"), "")
 	}
 	return errorResult(fmt.Errorf("element not found after scrolling"), "")
+}
+
+// scrollSurfaceSignature reduces the current page source to a key for
+// core.ScrollProgress. A capture that cannot be read reports ok=false and is
+// not observed, so a hiccup never passes for the end of the content.
+func (d *Driver) scrollSurfaceSignature() (string, bool) {
+	source, err := d.client.Source()
+	if err != nil || source == "" {
+		return "", false
+	}
+	return core.ScrollSignature(source), true
 }
 
 // atScrollContainerEdge reports whether the element with bounds b sits flush

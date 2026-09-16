@@ -744,6 +744,10 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 		timeout = time.Duration(s.TimeoutMs) * time.Millisecond
 	}
 	deadline := time.Now().Add(timeout)
+	// Stop early when the surface stops moving — a target that is not in the
+	// list should not cost every scroll the step allows.
+	var progress core.ScrollProgress
+
 	for i := 0; i < maxScrolls && time.Now().Before(deadline); i++ {
 		node, err := d.findElement(s.Element, true, 1000)
 		if err == nil && node != nil && isDisplayed(node) {
@@ -773,6 +777,13 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 				}
 			}
 		}
+		if sig, ok := d.scrollSurfaceSignature(); ok && progress.Observe(sig) {
+			return core.ErrorResult(
+				fmt.Errorf("element not found after %d scrolls", i),
+				fmt.Sprintf("scroll target not found: scrolling %s made no progress (end of content?)", direction),
+			)
+		}
+
 		result := d.handleScroll(&flow.ScrollStep{Direction: direction})
 		if !result.Success {
 			return result
@@ -783,6 +794,22 @@ func (d *Driver) handleScrollUntilVisible(s *flow.ScrollUntilVisibleStep) *core.
 		fmt.Errorf("element not found after %d scrolls", maxScrolls),
 		"scroll target not found",
 	)
+}
+
+// scrollSurfaceSignature reduces the current snapshot to a key for
+// core.ScrollProgress: type, label, identifier, value and frame of every
+// node, so a list that advanced by one row still reads as movement. A
+// snapshot that cannot be read reports ok=false and is not observed.
+func (d *Driver) scrollSurfaceSignature() (string, bool) {
+	nodes, err := d.fetchSnapshot()
+	if err != nil || len(nodes) == 0 {
+		return "", false
+	}
+	var sb strings.Builder
+	for _, n := range nodes {
+		fmt.Fprintf(&sb, "%s|%s|%s|%s|%v\n", n.Type, n.Label, n.Identifier, n.Value, n.Rect)
+	}
+	return core.ScrollSignature(sb.String()), true
 }
 
 func (d *Driver) handleDoubleTap(s *flow.DoubleTapOnStep) *core.CommandResult {
