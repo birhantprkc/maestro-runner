@@ -33,6 +33,9 @@ type FlowRunner struct {
 	stepsSkipped int
 	// Sub-command tracking for compound steps (runFlow, repeat, retry)
 	subCommands []report.Command
+	// nestedArtifactSeq numbers failure artifacts captured for nested steps
+	// (runFlow / repeat / retry), which have no top-level command index.
+	nestedArtifactSeq int
 	// Effective wait-for-idle timeout (0 = disabled, used to skip settle)
 	waitForIdleTimeout int
 	// Active runFlow timeout label (e.g. "3s") for enriching sub-step errors
@@ -390,7 +393,7 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 	// Capture before screenshot if configured
 	var artifacts report.CommandArtifacts
 	if captureAlways {
-		artifacts = fr.captureArtifacts(idx, "before")
+		artifacts = fr.captureArtifacts(idx, "before", false)
 	}
 
 	// Expand variables in step before execution
@@ -549,7 +552,7 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 		}
 
 	case *flow.AssertScreenshotStep:
-		result = fr.executeAssertScreenshot(s)
+		result = fr.executeAssertScreenshot(s, idx)
 
 	// PasteText - use in-memory copiedText first, clipboard as fallback
 	case *flow.PasteTextStep:
@@ -614,11 +617,18 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 		logger.Error("Step %d failed (%dms): %s - Error: %s", idx, stepDuration, step.Describe(), errorMsg)
 	}
 
-	// Capture after screenshot (on failure or always)
+	// Capture after screenshot (on failure or always). The view hierarchy is
+	// only worth the extra device round-trips on a FAILED step — it is the
+	// post-mortem for a failure — so `--artifacts always` no longer dumps a
+	// hierarchy on every passing step.
 	shouldCaptureAfter := captureAlways || (captureOnFailure && !result.Success)
 	if shouldCaptureAfter {
-		afterArtifacts := fr.captureArtifacts(idx, "after")
-		artifacts.ScreenshotAfter = afterArtifacts.ScreenshotAfter
+		afterArtifacts := fr.captureArtifacts(idx, "after", !result.Success)
+		// Don't clobber a screenshot a takeScreenshot step already produced
+		// for this command with the generic after-capture.
+		if artifacts.ScreenshotAfter == "" {
+			artifacts.ScreenshotAfter = afterArtifacts.ScreenshotAfter
+		}
 		artifacts.ViewHierarchy = afterArtifacts.ViewHierarchy
 	}
 
@@ -734,7 +744,20 @@ func (fr *FlowRunner) captureSettledScreenshot(step *flow.AssertScreenshotStep) 
 	return result
 }
 
-func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *core.CommandResult {
+// assertScreenshotDiffPath returns where an assertScreenshot diff image should
+// be written. For a top-level step (cmdIdx >= 0) it goes into the report
+// assets so it travels with the report; a nested step (cmdIdx < 0) has no
+// report command entry, so it keeps Maestro's sidecar-beside-the-reference
+// location.
+func (fr *FlowRunner) assertScreenshotDiffPath(cmdIdx int, referencePath string) (absDiff, relDiff string) {
+	if cmdIdx >= 0 {
+		return fr.flowWriter.ScreenshotDiffPath(cmdIdx)
+	}
+	p := core.DiffScreenshotPath(referencePath)
+	return p, p
+}
+
+func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep, cmdIdx int) *core.CommandResult {
 	result := fr.captureSettledScreenshot(step)
 	if !result.Success {
 		return result
@@ -813,9 +836,14 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 		// hint then see a picture that looks identical to the capture and
 		// conclude the runner is lying (#138). Clear it so the artifact can't
 		// contradict the error beside it.
-		diffPath := core.DiffScreenshotPath(referencePath)
-		if rmErr := os.Remove(diffPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			logger.Warn("Failed to remove stale screenshot diff %s: %v", diffPath, rmErr)
+		absDiff, _ := fr.assertScreenshotDiffPath(cmdIdx, referencePath)
+		// Clear the managed diff (report assets for a top-level step) and any
+		// legacy sidecar diff beside the reference, so neither location keeps a
+		// stale image contradicting this error.
+		for _, stale := range []string{absDiff, core.DiffScreenshotPath(referencePath)} {
+			if rmErr := os.Remove(stale); rmErr != nil && !os.IsNotExist(rmErr) {
+				logger.Warn("Failed to remove stale screenshot diff %s: %v", stale, rmErr)
+			}
 		}
 		err = fmt.Errorf("compare screenshot with %q: %w", referencePath, err)
 		msg := err.Error()
@@ -836,12 +864,12 @@ func (fr *FlowRunner) executeAssertScreenshot(step *flow.AssertScreenshotStep) *
 	matchPercentage := stats.MatchPercentage
 
 	if matchPercentage < step.ThresholdPercentage {
-		diffPath := core.DiffScreenshotPath(referencePath)
+		absDiff, relDiff := fr.assertScreenshotDiffPath(cmdIdx, referencePath)
 		diffHint := ""
-		if writeErr := core.WriteScreenshotDiff(referenceData, capturedData, diffPath); writeErr != nil {
+		if writeErr := core.WriteScreenshotDiff(referenceData, capturedData, absDiff); writeErr != nil {
 			logger.Warn("Failed to write screenshot diff: %v", writeErr)
 		} else {
-			diffHint = fmt.Sprintf(". Check the diff image at %s", diffPath)
+			diffHint = fmt.Sprintf(". Check the diff image at %s", relDiff)
 		}
 		// Print enough decimals that a near-miss can't render as "100.00% is
 		// below threshold 100.00%", and name the differing pixel count so a
@@ -1435,7 +1463,7 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		result, _ = fr.executeTakeScreenshot(s, len(fr.subCommands))
 	case *flow.AssertScreenshotStep:
 		fr.script.ExpandStep(step)
-		result = fr.executeAssertScreenshot(s)
+		result = fr.executeAssertScreenshot(s, -1)
 	case *flow.EvalBrowserScriptStep:
 		fr.script.ExpandStep(step)
 		result = fr.driver.Execute(step)
@@ -1570,6 +1598,23 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		cmd.SubCommands = nestedSubCommands
 	}
 
+	// A failed nested step (inside runFlow / repeat / retry) now gets its own
+	// screenshot + hierarchy, the same post-mortem a failed top-level step has.
+	if !result.Success {
+		seq := fr.nestedArtifactSeq
+		fr.nestedArtifactSeq++
+		if data, err := fr.driver.Screenshot(); err == nil && len(data) > 0 {
+			if path, saveErr := fr.flowWriter.SaveNestedScreenshot(seq, data); saveErr == nil {
+				cmd.Artifacts.ScreenshotAfter = path
+			}
+		}
+		if data, err := fr.driver.Hierarchy(); err == nil && len(data) > 0 {
+			if path, saveErr := fr.flowWriter.SaveNestedHierarchy(seq, data); saveErr == nil {
+				cmd.Artifacts.ViewHierarchy = path
+			}
+		}
+	}
+
 	fr.subCommands = append(fr.subCommands, cmd)
 
 	return result
@@ -1665,8 +1710,12 @@ func (fr *FlowRunner) executeSubFlowWithRetry(subFlow flow.Flow, maxRetries int)
 	}
 }
 
-// captureArtifacts captures screenshots and hierarchy.
-func (fr *FlowRunner) captureArtifacts(cmdIdx int, timing string) report.CommandArtifacts {
+// captureArtifacts captures the step screenshot and, when captureHierarchy is
+// set, the view hierarchy. The hierarchy is a per-failure post-mortem, so
+// callers pass captureHierarchy=true only for a failed step — not for every
+// passing step under `--artifacts always`, where it would cost extra device
+// round-trips for a dump nobody reads.
+func (fr *FlowRunner) captureArtifacts(cmdIdx int, timing string, captureHierarchy bool) report.CommandArtifacts {
 	var artifacts report.CommandArtifacts
 
 	// Capture screenshot
@@ -1681,8 +1730,7 @@ func (fr *FlowRunner) captureArtifacts(cmdIdx int, timing string) report.Command
 		}
 	}
 
-	// Capture hierarchy on failure
-	if timing == "after" {
+	if captureHierarchy {
 		if data, err := fr.driver.Hierarchy(); err == nil && len(data) > 0 {
 			path, saveErr := fr.flowWriter.SaveViewHierarchy(cmdIdx, data)
 			if saveErr == nil {
