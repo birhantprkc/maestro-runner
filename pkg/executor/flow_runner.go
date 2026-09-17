@@ -99,6 +99,7 @@ func (fr *FlowRunner) Run() FlowResult {
 	// Apply the global condition-check timeout for when:/while: checks. 0 keeps
 	// the engine's fast default; --condition-timeout / config overrides it (#110).
 	fr.script.SetConditionTimeout(fr.config.ConditionTimeout)
+	fr.script.SetInsecureHTTP(fr.config.Insecure)
 
 	// Apply waitForIdleTimeout with priority:
 	// Flow config > CLI flag > Workspace config > Cap file > Default (5000ms)

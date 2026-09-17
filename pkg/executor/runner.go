@@ -61,9 +61,10 @@ type RunnerConfig struct {
 	Env map[string]string
 
 	// Driver settings
-	WaitForIdleTimeout int // Global wait for idle timeout in ms
-	TypingFrequency    int // Global WDA typing frequency in keys/sec (0 = WDA default)
-	ConditionTimeout   int // Default timeout (ms) for when:/while: condition checks (0 = engine default)
+	WaitForIdleTimeout int  // Global wait for idle timeout in ms
+	TypingFrequency    int  // Global WDA typing frequency in keys/sec (0 = WDA default)
+	ConditionTimeout   int  // Default timeout (ms) for when:/while: condition checks (0 = engine default)
+	Insecure           bool // Skip TLS verification for runScript http.* calls (--insecure)
 	// StepDelay pauses between top-level steps (ms). Flow config overrides it.
 	// For pacing demos and apps whose animations outrun the assertions.
 	StepDelay int

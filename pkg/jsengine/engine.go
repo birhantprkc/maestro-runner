@@ -13,13 +13,14 @@ import (
 
 // Engine wraps goja runtime with Maestro-compatible features
 type Engine struct {
-	runtime    *goja.Runtime
-	variables  map[string]interface{}
-	output     map[string]interface{}
-	copiedText string
-	platform   string
-	timers     *timerRegistry
-	mu         sync.Mutex
+	runtime      *goja.Runtime
+	variables    map[string]interface{}
+	output       map[string]interface{}
+	copiedText   string
+	platform     string
+	timers       *timerRegistry
+	insecureHTTP bool
+	mu           sync.Mutex
 }
 
 // timerRegistry manages setTimeout/setInterval timers
@@ -517,6 +518,11 @@ func extractUndefinedVarName(errMsg string) string {
 
 // Close cleans up the engine (stops timers, etc.)
 // Safe to call multiple times.
+// SetInsecureHTTP sets the engine-wide default for whether runScript's
+// http.* helpers skip TLS certificate verification. A per-request
+// `insecure: true` option overrides it. Wired from the --insecure CLI flag.
+func (e *Engine) SetInsecureHTTP(v bool) { e.insecureHTTP = v }
+
 func (e *Engine) Close() {
 	e.timers.closeOnce.Do(func() {
 		e.timers.mu.Lock()
