@@ -84,7 +84,7 @@ For Appium, set `AppiumURL` and either `CapsFile` or a parsed `Capabilities` map
 |---|---|
 | `Platform`, `Driver` | select the device backend (above) |
 | `Devices` | one or more device UDIDs / serials |
-| `AppFile`, `AppID` | app binary to install and its bundle id / package |
+| `AppFile`, `AppID` | app binary to install and its bundle id / package. `AppID` is optional: when left empty the runner takes it from the first flow in the suite that declares an `appId` (or a web `url`), so a suite may lead with a setup flow that declares none. |
 | `TeamID` | Apple Development Team ID (iOS) |
 | `OutputDir` | where the JSON, HTML, JUnit, and Allure reports are written |
 | `Env` | variables exposed to `${...}` in flows |

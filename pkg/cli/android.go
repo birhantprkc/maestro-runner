@@ -291,6 +291,13 @@ func createUIAutomator2Driver(cfg *RunConfig, dev *device.AndroidDevice, info de
 	}
 	driver := uia2driver.New(client, platformInfo, dev)
 
+	// Slow keyPress-mode typing only when --typing-frequency was given
+	// explicitly. The flag defaults to 30, so applying it unconditionally would
+	// add a pause to every keystroke on Android; opt in by setting it.
+	if cfg.TypingFrequencySet && cfg.TypingFrequency > 0 {
+		_ = driver.SetTypingFrequency(cfg.TypingFrequency)
+	}
+
 	// Cleanup function (silent)
 	cleanup := func() {
 		if err := client.Close(); err != nil {

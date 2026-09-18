@@ -401,7 +401,7 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 		// Resolve and read the focused field first: after typing, "unchanged"
 		// is the only thing that separates a hint from a lost keystroke.
 		target, before := d.focusedFieldBefore()
-		if err := d.client.SendKeyActions(text); err != nil {
+		if err := d.client.SendKeyActionsWithDelay(text, d.typingDelayMs); err != nil {
 			return errorResult(err, "Failed to input text via key press")
 		}
 		// Per-character key events are the path that loses characters when the
