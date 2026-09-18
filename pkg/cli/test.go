@@ -523,11 +523,12 @@ type RunConfig struct {
 	WindowSize  string // Browser viewport as WxH (web only, empty = 1280x800)
 
 	// Device
-	Platform string
-	Devices  []string // Device UDIDs (can be comma-separated or multiple from --parallel)
-	Verbose  bool
-	AppFile  string // App binary to install before testing
-	AppID    string // App bundle ID or package name
+	Platform      string
+	Devices       []string // Device UDIDs (can be comma-separated or multiple from --parallel)
+	Verbose       bool
+	AppFile       string // App binary to install before testing (a local path or an http(s) URL)
+	AppFileSHA256 string // Optional expected SHA-256 of a downloaded --app-file (hex); verified after download
+	AppID         string // App bundle ID or package name
 
 	// Driver
 	Driver    string // uiautomator2, appium
@@ -768,6 +769,7 @@ func runTest(c *cli.Context) error {
 		Devices:            parseDevices(getString("device")),
 		Verbose:            getBool("verbose"),
 		AppFile:            getString("app-file"),
+		AppFileSHA256:      getString("app-file-sha256"),
 		AppID:              appID,
 		Driver:             getString("driver"),
 		AppiumURL:          getString("appium-url"),
@@ -861,6 +863,14 @@ func executeTest(cfg *RunConfig) error {
 	logger.Info("Output directory: %s", cfg.OutputDir)
 	logger.Info("Platform: %s", cfg.Platform)
 	logger.Info("Driver: %s", cfg.Driver)
+
+	// 2.4. Resolve a remote --app-file to a local cached path before anything
+	// downstream reads it (install, version lookup, Appium caps). After this,
+	// cfg.AppFile is a local path, so the URL — which may be a presigned link
+	// carrying credentials — never reaches those logs.
+	if err := resolveRemoteAppFile(cfg); err != nil {
+		return fmt.Errorf("failed to fetch --app-file: %w", err)
+	}
 
 	// 2.5. Initialize device lifecycle managers
 	emulatorMgr := emulator.NewManager()

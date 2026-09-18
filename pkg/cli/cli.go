@@ -60,8 +60,13 @@ var GlobalFlags = []cli.Flag{
 	},
 	&cli.StringFlag{
 		Name:    "app-file",
-		Usage:   "App binary (.apk, .app, .ipa) to install before testing",
+		Usage:   "App binary (.apk, .app, .ipa) to install before testing. May be a local path or an http(s) URL; a URL is downloaded and cached under ~/.maestro-runner/app-cache, and a .zip is unpacked to the .app/.ipa inside.",
 		EnvVars: []string{"MAESTRO_APP_FILE"},
+	},
+	&cli.StringFlag{
+		Name:    "app-file-sha256",
+		Usage:   "Expected SHA-256 (hex) of a downloaded --app-file; the download is rejected if it does not match. Also makes the cache content-addressed, so a changed artifact is refetched.",
+		EnvVars: []string{"MAESTRO_APP_FILE_SHA256"},
 	},
 	&cli.BoolFlag{
 		Name:  "no-ansi",
