@@ -575,6 +575,11 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 		opts, _ := extractTapOptions(step)
 		result = fr.executeTapWithOptions(step, opts)
 
+	// Plain time delay - handled here, no driver involved. Honours run
+	// cancellation so Ctrl-C during a long wait stops the run promptly.
+	case *flow.WaitStep:
+		result = fr.executeWait(s)
+
 	// All other steps - delegate to driver
 	default:
 		result = fr.driver.Execute(step)
@@ -1536,6 +1541,9 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 		opts, _ := extractTapOptions(step)
 		result = fr.executeTapWithOptions(step, opts)
 
+	case *flow.WaitStep:
+		result = fr.executeWait(s)
+
 	default:
 		// Expand variables before driver execution
 		fr.script.ExpandStep(step)
@@ -1796,4 +1804,26 @@ func jsErrorSummary(logs []report.ConsoleLog) string {
 	}
 	return fmt.Sprintf("failOnConsoleError: %d JS error(s) detected:\n%s",
 		len(errs), strings.Join(errs, "\n"))
+}
+
+// executeWait pauses the flow for the step's duration. It waits on the run
+// context so a cancelled run (Ctrl-C) stops the wait immediately instead of
+// blocking for the full duration. A zero duration is a no-op success.
+func (fr *FlowRunner) executeWait(step *flow.WaitStep) *core.CommandResult {
+	if step.DurationMs <= 0 {
+		return &core.CommandResult{Success: true, Message: "wait: 0ms"}
+	}
+	d := time.Duration(step.DurationMs) * time.Millisecond
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return &core.CommandResult{Success: true, Message: fmt.Sprintf("Waited %dms", step.DurationMs)}
+	case <-fr.ctx.Done():
+		return &core.CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("wait interrupted after %dms", step.DurationMs),
+			Error:   fr.ctx.Err(),
+		}
+	}
 }
