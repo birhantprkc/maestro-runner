@@ -617,20 +617,17 @@ func (r *Runner) destination() string {
 	if isSim {
 		return fmt.Sprintf("platform=iOS Simulator,arch=%s,id=%s", simulator.XcodebuildArch(runtime.GOARCH), r.deviceUDID)
 	}
-	// A physical device has the same ambiguity: the resolver lists both arm64
-	// and arm64e for one iPhone and warns "Using the first of multiple
-	// matching destinations". The pin above was simulator-only, so devices
-	// kept the coin flip — and a wrong pick stalls identically, which is what
-	// "xcodebuild stalled (no log output)" on a real device looks like.
+	// A physical device is selected by its unique id alone. xcodebuild rejects
+	// arch= (and OS=) on a device destination — "Please supply only supported
+	// device specifier options" (#172) — so, unlike a simulator, the device
+	// destination must NOT carry an arch. Which slice the runner is built as is
+	// a build-settings concern (ARCHS), not a destination one.
 	//
-	// arm64 is the slice WDA is built as. MAESTRO_WDA_DEST_ARCH overrides it,
-	// and setting it to "any" drops the pin entirely, so a device whose
-	// resolver disagrees can be recovered without a new binary.
+	// MAESTRO_WDA_DEST_ARCH is kept as an explicit opt-in for a host that has a
+	// reason to force an arch into the specifier anyway; "any" and the empty
+	// default both mean the plain, always-accepted device destination.
 	arch := os.Getenv("MAESTRO_WDA_DEST_ARCH")
-	if arch == "" {
-		arch = "arm64"
-	}
-	if strings.EqualFold(arch, "any") {
+	if arch == "" || strings.EqualFold(arch, "any") {
 		return fmt.Sprintf("platform=iOS,id=%s", r.deviceUDID)
 	}
 	return fmt.Sprintf("platform=iOS,arch=%s,id=%s", arch, r.deviceUDID)
