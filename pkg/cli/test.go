@@ -172,7 +172,7 @@ Examples:
 		},
 		&cli.IntFlag{
 			Name:    "typing-frequency",
-			Usage:   "Typing speed in keys/sec (default 30). Lower values help React Native apps. On iOS WDA it always applies; on Android it adds a per-key pause to keyPress-mode inputText only when set explicitly.",
+			Usage:   "Typing speed in keys/sec (default 30). Lower values help apps that drop fast key events. Applies to WDA and the DeviceLab iOS driver (all typing) and to keyPress-mode inputText on uiautomator2; the default DeviceLab Android driver types through its agent and is unaffected.",
 			Value:   30,
 			EnvVars: []string{"MAESTRO_TYPING_FREQUENCY"},
 		},
@@ -554,7 +554,6 @@ type RunConfig struct {
 	Insecure           bool   // Skip TLS verification for runScript http.* (--insecure)
 	StepDelay          int    // Pause between top-level steps in ms (0 = none)
 	TypingFrequency    int    // WDA typing frequency in keys/sec (0 = use WDA default of 60)
-	TypingFrequencySet bool   // true when --typing-frequency was given explicitly (the flag defaults to 30, so drivers that would slow every keystroke — Android keyPress — apply it only when this is set)
 	TeamID             string // Apple Development Team ID for WDA code signing
 	WDABundleID        string // Custom WDA bundle identifier
 
@@ -784,7 +783,6 @@ func runTest(c *cli.Context) error {
 		Insecure:           getBool("insecure"),
 		StepDelay:          getInt("step-delay"),
 		TypingFrequency:    getInt("typing-frequency"),
-		TypingFrequencySet: c.IsSet("typing-frequency") || (c.Lineage()[1] != nil && c.Lineage()[1].IsSet("typing-frequency")),
 		TeamID:             getString("team-id"),
 		WDABundleID:        getString("wda-bundle-id"),
 		StartEmulator:      getString("start-emulator"),

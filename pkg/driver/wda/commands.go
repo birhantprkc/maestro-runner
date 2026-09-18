@@ -398,8 +398,18 @@ func (d *Driver) inputText(step *flow.InputTextStep) *core.CommandResult {
 		// inside it types perfectly well once focused. So fall through to the
 		// tap-and-type path rather than failing the step outright (#143).
 		if info.ID != "" {
+			// Read the field first so a dropped character is detectable after
+			// typing — WDA's XCUITest typing can silently lose characters when
+			// the app janks, notably digits in Expo/React Native fields.
+			before, _ := d.client.ElementText(info.ID)
 			if err := d.client.ElementSendKeys(info.ID, text, d.typingFrequency); err == nil {
-				return successResult(fmt.Sprintf("Entered text: %s%s", text, unicodeWarning), info)
+				field := core.TextFieldFuncs(
+					func() (string, error) { return d.client.ElementText(info.ID) },
+					func(s string) error { return d.client.ElementSendKeys(info.ID, s, d.typingFrequency) },
+					func() error { return d.client.ElementClear(info.ID) },
+				)
+				note := core.ConfirmTypedText(field, text, before, logger.Warn)
+				return successResult(fmt.Sprintf("Entered text: %s%s%s", text, unicodeWarning, note), info)
 			}
 		}
 		// Fallback: tap to focus first
