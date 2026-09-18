@@ -279,8 +279,10 @@ func resolveDriverName(cfg *RunConfig, platform string) string {
 	case "mock":
 		driverName = "mock"
 	default: // android or empty
-		if driverName == "" || driverName == "uiautomator2" {
-			driverName = "uiautomator2"
+		// Unset means the Android default, which is devicelab. An explicit
+		// --driver uiautomator2 is reported as uiautomator2.
+		if driverName == "" {
+			driverName = "devicelab"
 		}
 	}
 	return driverName

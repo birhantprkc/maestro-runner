@@ -42,7 +42,10 @@ func useAndroidTCPForward(cfg *RunConfig) bool {
 func CreateAndroidDriver(cfg *RunConfig) (core.Driver, func(), error) {
 	driverType := strings.ToLower(cfg.Driver)
 	if driverType == "" {
-		driverType = "uiautomator2"
+		// DeviceLab is the default Android driver: on the TestHive suites it
+		// matched UIAutomator2 on pass rate and ran ~1.5-2x faster. Pass
+		// --driver uiautomator2 to use the older path.
+		driverType = "devicelab"
 	}
 
 	// 1. Connect to device

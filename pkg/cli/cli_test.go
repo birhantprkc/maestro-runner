@@ -1135,7 +1135,7 @@ func TestResolveDriverName(t *testing.T) {
 		platform string
 		expected string
 	}{
-		{"default android", "", "android", "uiautomator2"},
+		{"default android", "", "android", "devicelab"},
 		{"default ios", "", "ios", "wda"},
 		{"explicit uiautomator2 android", "uiautomator2", "android", "uiautomator2"},
 		{"explicit uiautomator2 ios overrides to wda", "uiautomator2", "ios", "wda"},
@@ -1147,7 +1147,7 @@ func TestResolveDriverName(t *testing.T) {
 		{"case insensitive web", "", "Web", "cdp"},
 		{"case insensitive ios", "", "iOS", "wda"},
 		{"case insensitive appium", "Appium", "android", "appium"},
-		{"empty both", "", "", "uiautomator2"},
+		{"empty both", "", "", "devicelab"},
 	}
 
 	for _, tt := range tests {
