@@ -73,6 +73,9 @@ func (se *ScriptEngine) Close() {
 // SetFlowDir sets the current flow directory for relative path resolution.
 func (se *ScriptEngine) SetFlowDir(dir string) {
 	se.flowDir = dir
+	if se.js != nil {
+		se.js.SetRequireBaseDir(dir)
+	}
 }
 
 // FlowDir returns the current flow directory used for relative path resolution.
