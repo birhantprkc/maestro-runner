@@ -117,6 +117,12 @@ type Driver struct {
 	// Keyboard auto-dismiss: set after inputText/inputRandom, checked on next tap/assert
 	lastStepWasInput bool
 
+	// Text of the last WebView label a tap targeted, used to find and drive the
+	// matching cross-origin iframe input over CDP when the following inputText
+	// can't reach it natively (Shopify checkout's hosted card fields). Persists
+	// across the multi-part inputTexts of one field until the next tap.
+	lastWebTapText string
+
 	// Cached values to avoid repeated ADB shell calls
 	cachedAPILevel   int
 	cachedActivities map[string]string // appID -> activity
