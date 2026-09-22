@@ -16,10 +16,13 @@
 [![by](https://img.shields.io/badge/by-DeviceLab.dev-17a2b8.svg?style=for-the-badge)](https://devicelab.dev)
 
 [![npm](https://img.shields.io/npm/v/maestro-runner?label=npm&color=cb3837)](https://www.npmjs.com/package/maestro-runner)
-[![npm downloads](https://img.shields.io/npm/dm/maestro-runner)](https://www.npmjs.com/package/maestro-runner)
 [![CI](https://github.com/devicelab-dev/maestro-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/devicelab-dev/maestro-runner/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/devicelab-dev/maestro-runner/branch/main/graph/badge.svg)](https://codecov.io/gh/devicelab-dev/maestro-runner)
 [![Go Report Card](https://goreportcard.com/badge/github.com/devicelab-dev/maestro-runner?v=2)](https://goreportcard.com/report/github.com/devicelab-dev/maestro-runner)
+
+[![npm installs/mo](https://img.shields.io/npm/dm/maestro-runner?label=npm%20installs%2Fmo&color=cb3837)](https://www.npmjs.com/package/maestro-runner)<br>
+[![GitHub downloads](https://img.shields.io/github/downloads/devicelab-dev/maestro-runner/total?label=github%20downloads&color=17a2b8)](https://github.com/devicelab-dev/maestro-runner/releases)<br>
+[![CI runs](https://img.shields.io/endpoint?url=https://open.devicelab.dev/api/maestro-runner/shield)](https://www.npmjs.com/package/maestro-runner)
 
 <b><a href="https://open.devicelab.dev/maestro-runner">Documentation</a></b> | <b><a href="#install">Get Started</a></b> | <b><a href="https://open.devicelab.dev/maestro-runner/docs/cli-reference">CLI Reference</a></b> | <b><a href="https://open.devicelab.dev/maestro-runner/docs/flow-commands">Flow Commands</a></b> | <b><a href="CONTRIBUTING.md">Contributing</a></b>
 
