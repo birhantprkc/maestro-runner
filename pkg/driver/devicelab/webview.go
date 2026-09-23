@@ -521,6 +521,8 @@ func (m *webViewManager) pruneContexts(dead []string) {
 // text the flow tapped, e.g. "Card number"); otherwise it uses the focused
 // element. Returns the resulting value, or null when no matching input exists
 // in that context.
+//
+//nolint:unused // kept with fillIframeInput, below
 const jsFillIframeInput = `(function(label,t){
   function norm(s){return (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');}
   function fieldText(i){return (i.labels&&i.labels[0]?i.labels[0].textContent:'')||i.placeholder||i.getAttribute('aria-label')||i.name||'';}
@@ -795,6 +797,12 @@ func (m *webViewManager) typeIntoIframeInput(label, text string) (bool, error) {
 // to it entirely over CDP, so it works without the native tap having focused the
 // field and without the JS helper (which can't reach cross-origin frames).
 // Returns true if a context accepted the text.
+//
+// Not called at present: the gated path in commands.go types with real key
+// events instead, so the checkout's own formatter runs. Kept as the
+// value-setter alternative while that path is still being proven.
+//
+//nolint:unused
 func (m *webViewManager) fillIframeInput(label, text string) (bool, error) {
 	// Use a DEDICATED CDP connection for iframe evals. The shared connection is
 	// saturated by element finds and Network-domain events during the checkout,

@@ -633,10 +633,6 @@ func (r *Runner) destination() string {
 	return fmt.Sprintf("platform=iOS,arch=%s,id=%s", arch, r.deviceUDID)
 }
 
-// wdaRunnerBundleID is the XCTest runner installed on the device by the WDA
-// build. Its process is what survives a host-side `xcodebuild` kill.
-const wdaRunnerBundleID = "WebDriverAgentRunner-Runner"
-
 // terminateDeviceWDA kills a WebDriverAgentRunner left running on a physical
 // device.
 //
