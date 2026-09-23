@@ -1137,7 +1137,13 @@ func (d *Driver) waitUntil(step *flow.WaitUntilStep) *core.CommandResult {
 					return successResult("Element is no longer visible", nil)
 				}
 			}
-			// HTTP round-trip (~100ms) is natural rate limit, no sleep needed
+			// A miss used to cost a page-source dump, which throttled this
+			// loop by accident; a proven absence now returns in ~13ms on a
+			// local simulator (#173), which spun ~75 queries a second.
+			select {
+			case <-ctx.Done():
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 	}
 }

@@ -401,6 +401,13 @@ func (d *Driver) findElementDirect(sel flow.Selector) (*core.ElementInfo, error)
 				if elemID, err := d.client.FindElement("accessibility id", sel.ID); err == nil {
 					return d.getElementInfo(elemID)
 				}
+				// accessibility id is an exact match, but the page-source
+				// matcher treats a literal id as a substring, so its miss
+				// proves nothing. name CONTAINS is the same test the matcher
+				// makes; if it finds nothing either, skip the source (#173).
+				if iosIDIsLiteral(sel.ID) && d.iosNativelyAbsent(iosIDContainsPredicate(sel.ID)) {
+					return nil, fmt.Errorf("element not found: %s", sel.Describe())
+				}
 			}
 		} else {
 			if looksLikeRegex(sel.ID) {
@@ -428,6 +435,13 @@ func (d *Driver) findElementDirect(sel flow.Selector) (*core.ElementInfo, error)
 			predicate := fmt.Sprintf(`label CONTAINS[c] "%s" OR name CONTAINS[c] "%s" OR value CONTAINS[c] "%s"`, escaped, escaped, escaped)
 			if elemID, err := d.client.FindElement("-ios predicate string", predicate); err == nil && elemID != "" {
 				return d.getElementInfo(elemID)
+			}
+			// The query above leaves out placeholderValue, which the
+			// page-source matcher reads. Once that is covered too, a literal
+			// text that nothing contains is absent, and the source dump — 20s
+			// or more on a large tree over a cloud endpoint — is skipped (#173).
+			if !looksLikeRegex(sel.Text) && d.iosNativelyAbsent(iosTextContainsPredicate(sel.Text)) {
+				return nil, fmt.Errorf("element not found: %s", sel.Describe())
 			}
 		} else {
 			// Android: use UiAutomator selectors (much faster than page source)
@@ -699,8 +713,55 @@ func (d *Driver) findElementForTapIOS(sel flow.Selector) (*core.ElementInfo, err
 		return d.getElementInfo(elemID)
 	}
 
+	// No exact match. If no element even contains the text, the page source
+	// cannot find one either, so do not pay for it (#173).
+	if !looksLikeRegex(sel.Text) && d.iosNativelyAbsent(iosTextContainsPredicate(sel.Text)) {
+		return nil, fmt.Errorf("element not found: %s", sel.Describe())
+	}
+
 	// Step 2: Page source with clickable prioritization
 	return d.findElementByPageSource(sel)
+}
+
+// iosNativelyAbsent runs one iOS predicate query and reports whether Appium
+// answered "no such element". Only that answer proves absence: any other
+// error — an older WebDriverAgent that rejects an attribute name, a session
+// problem — returns false, and the caller falls back to the page source as
+// before.
+//
+// Each predicate passed here must accept every element the page-source
+// matcher would, so that "absent" here means the matcher finds nothing too.
+// On a large tree over a cloud endpoint, GET /source measured ~20s and at
+// worst exceeded Appium's 60s limit, which ends the session (#173). A miss is
+// the normal case for when: conditions and for every poll before an element
+// appears, so skipping the dump for a proven absence matters.
+func (d *Driver) iosNativelyAbsent(predicate string) bool {
+	_, err := d.client.FindElement("-ios predicate string", predicate)
+	return err != nil && strings.HasPrefix(err.Error(), "no such element")
+}
+
+// iosTextContainsPredicate matches every element the page-source matcher
+// accepts for a literal text: case-insensitive contains over label, name,
+// value and placeholderValue (matchesSelector in pagesource.go).
+func iosTextContainsPredicate(text string) string {
+	e := escapeIOSPredicateString(text)
+	return fmt.Sprintf(`label CONTAINS[c] "%s" OR name CONTAINS[c] "%s" OR value CONTAINS[c] "%s" OR placeholderValue CONTAINS[c] "%s"`, e, e, e, e)
+}
+
+// iosIDContainsPredicate matches every element the page-source matcher
+// accepts for a literal id: matchesID compiles it as an unanchored regex,
+// which for a literal is a case-sensitive substring test on name.
+func iosIDContainsPredicate(id string) string {
+	return fmt.Sprintf(`name CONTAINS "%s"`, escapeIOSPredicateString(id))
+}
+
+// iosIDIsLiteral reports whether matchesID treats id as a plain substring.
+// looksLikeRegex lets a standalone "." through as literal, but matchesID
+// compiles the id as a regex, where "." matches any character — so an id with
+// a dot can match names that CONTAINS would not, and is left to the page
+// source.
+func iosIDIsLiteral(id string) bool {
+	return !looksLikeRegex(id) && !strings.Contains(id, ".")
 }
 
 // findElementRelative handles relative selectors (below, above, etc.)
