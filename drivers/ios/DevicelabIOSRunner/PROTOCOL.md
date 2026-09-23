@@ -86,6 +86,7 @@ Unknown fields are ignored. Missing required fields produce `INVALID_ARGUMENT`.
 | `XCUI_EXCEPTION` | Underlying XCUITest threw an ObjC exception (retried once before this) |
 | `SNAPSHOT_FAILED` | No accessibility tree could be read (query failed or timed out); `data.appState` says why, usually a suspended app |
 | `NO_TARGET_APP` | A read-only command named no app and the frontmost app could not be resolved |
+| `NO_TEXT_INPUT` | A replace-mode `type` (a clear, or `eraseText`) found no text input at the coordinates, or none focused |
 | `RUNNER_INTERNAL` | Bug in the runner |
 
 ## Versioning
@@ -267,3 +268,5 @@ This split mirrors how the current `pkg/driver/wda/` and `pkg/driver/devicelab/`
 - **`displayed` semantics.** WDA's `isDisplayed` differs from XCUI's `isHittable`. We compute `displayed` as "rect intersects screen bounds AND parent clip path", `hittable` as raw `.isHittable`. Validate with TestHive flows.
 - **Predicate string compatibility.** WDA supports a specific NSPredicate dialect via Appium. We should support the same dialect so existing flow selectors keep working — verify against `pkg/driver/wda/driver.go:findElementByWDA`.
 - **`scroll` vs `swipe` duration defaults.** WDA scrolls slower than it swipes. Per react-navigation PR #13027, swipe duration tuning is touchy. Pick defaults that match upstream Maestro out of the gate.
+
+`type` with `text: ""` and `textEntryMode: "replace"` clears the resolved input. An optional `deleteCount` (local extension, used by `eraseText`) deletes that many characters from the end instead; a count of at least the field's length clears the whole field through the same verified path.

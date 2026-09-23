@@ -114,3 +114,40 @@ func assertEraseBody(t *testing.T, got, want map[string]any, absent []string) {
 		}
 	}
 }
+
+// TestEraseTextSendsCount: eraseText's count reaches the runner, which
+// deletes that many characters from the end; with no count it is Maestro's 50.
+func TestEraseTextSendsCount(t *testing.T) {
+	okReply := map[string]any{"ok": true, "data": map[string]any{"message": "erased"}}
+	for _, tt := range []struct {
+		characters int
+		want       float64
+	}{{2, 2}, {0, 50}} {
+		d, got := eraseServer(t, okReply)
+		if res := d.handleEraseText(&flow.EraseTextStep{Characters: tt.characters}); !res.Success {
+			t.Fatalf("characters=%d: %s", tt.characters, res.Message)
+		}
+		if (*got)["deleteCount"] != tt.want {
+			t.Errorf("characters=%d: deleteCount = %v, want %v", tt.characters, (*got)["deleteCount"], tt.want)
+		}
+	}
+}
+
+// TestEraseTextWithNothingFocusedPasses: with no text input to act on there
+// is nothing to erase, and the step passes, as in Maestro. Any other runner
+// failure still fails it.
+func TestEraseTextWithNothingFocusedPasses(t *testing.T) {
+	noInput := map[string]any{"ok": false, "error": map[string]any{
+		"code": ErrNoTextInput, "message": "no focused text input to clear",
+	}}
+	d, _ := eraseServer(t, noInput)
+	if res := d.handleEraseText(&flow.EraseTextStep{}); !res.Success {
+		t.Errorf("nothing focused failed the step: %s", res.Message)
+	}
+
+	other := map[string]any{"ok": false, "error": map[string]any{"code": "XCUI_EXCEPTION", "message": "boom"}}
+	d, _ = eraseServer(t, other)
+	if res := d.handleEraseText(&flow.EraseTextStep{}); res.Success {
+		t.Error("a runner exception passed the step")
+	}
+}

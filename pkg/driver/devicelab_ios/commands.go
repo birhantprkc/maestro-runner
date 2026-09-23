@@ -558,15 +558,15 @@ func (d *Driver) handleWaitForAnimation(s *flow.WaitForAnimationToEndStep) *core
 	return core.SuccessResult("animation ended", nil)
 }
 
-// handleEraseText emits a `type` request with textEntryMode="replace"
-// and an empty text payload, which the runner treats as "clear the field":
-// it resolves the input (last-tapped coords / id), deletes its contents via
-// clearTextInput (element.typeText with backspaces, much faster than
-// app.typeText), then verifies the field reads back empty — a placeholder
-// counts as empty — clearing once more if text is left. A field that still
-// holds text comes back as a TEXT_ENTRY_MISMATCH error, and no resolvable
-// input as a "no ... text input ... to clear" error; both fail the step.
-// The whole field is cleared: CharactersToErase is not honoured.
+// handleEraseText emits a `type` request with textEntryMode="replace", an
+// empty text payload and deleteCount, which the runner treats as "delete this
+// many characters from the end": it resolves the input (last-tapped coords /
+// id) and sends that many deletes. A count that covers the whole value clears
+// the field instead, verifying it reads back empty (a placeholder counts as
+// empty) and clearing once more if text is left; a field that still holds
+// text comes back as a TEXT_ENTRY_MISMATCH error. The count defaults to 50,
+// as in Maestro and the WDA driver. With no text input to act on there is
+// nothing to erase, and the step passes, as it does in Maestro.
 // We build the JSON manually here because the Command struct's
 // `text` field is JSON `omitempty` (any other handler sending an empty
 // string would mis-trigger text-based element matching on the runner).
@@ -575,6 +575,7 @@ func (d *Driver) handleEraseText(s *flow.EraseTextStep) *core.CommandResult {
 		"command":       string(CmdType),
 		"text":          "",
 		"textEntryMode": "replace",
+		"deleteCount":   eraseCount(s.Characters),
 	}
 	if d.appID != "" {
 		body["appBundleId"] = d.appID
@@ -590,9 +591,21 @@ func (d *Driver) handleEraseText(s *flow.EraseTextStep) *core.CommandResult {
 	ctx, cancel := d.callTimeout()
 	defer cancel()
 	if _, err := d.client.CallRaw(ctx, body); err != nil {
+		if re, ok := IsRunnerError(err); ok && re.Code == ErrNoTextInput {
+			return core.SuccessResult("nothing to erase: no focused text input", nil)
+		}
 		return core.ErrorResult(err, "eraseText failed: "+err.Error())
 	}
 	return core.SuccessResult("erased", nil)
+}
+
+// eraseCount is how many characters eraseText deletes: the step's count, or
+// Maestro's default of 50.
+func eraseCount(characters int) int {
+	if characters > 0 {
+		return characters
+	}
+	return 50
 }
 
 func (d *Driver) handleBack(s *flow.BackStep) *core.CommandResult {

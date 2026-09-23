@@ -616,6 +616,26 @@ extension RunnerTests {
     return nil
   }
 
+  /// Local edit (eraseText with a count): delete `count` characters from the
+  /// end of the field, as Maestro does. Returns nil when the count covers the
+  /// whole value, so the caller clears the field through the verified path.
+  func eraseTrailingCharacters(
+    app: XCUIApplication, target: TextEntryTarget, count: Int
+  ) -> Response? {
+    guard let element = resolveTextEntryElement(app: app, target: target) else {
+      return nil
+    }
+    let current = normalizedElementText(element.value)
+    guard !current.isEmpty, count < current.count else {
+      return nil
+    }
+#if !os(tvOS)
+    moveCaretToEnd(element: element)
+#endif
+    element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count))
+    return Response(ok: true, data: DataPayload(message: "erased \(count) characters"))
+  }
+
   func clearTextInput(_ element: XCUIElement) {
 #if !os(tvOS)
     moveCaretToEnd(element: element)

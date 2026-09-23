@@ -108,6 +108,10 @@ struct Command: Codable {
   let mediaData: String?  // base64-encoded file bytes (addMedia)
   let appearance: String?  // "dark" or "light" (setAppearance)
   let timeoutMs: Double?  // idle: the cap on the wait; absent = 1000, 0 = do not wait
+  // Local extension (eraseText): with an empty replace, delete this many
+  // characters from the end. Absent, or at least the field's length, clears
+  // the whole field.
+  let deleteCount: Int?
 }
 
 struct Response: Codable {

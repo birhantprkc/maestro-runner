@@ -263,6 +263,9 @@ const (
 	// the runner could not resolve the frontmost one. Older runners launched
 	// their own host app here, covering whatever was on screen.
 	ErrNoTargetApp = "NO_TARGET_APP"
+	// ErrNoTextInput — a replace-mode type (a clear, or eraseText) found no
+	// text input to act on. Older runners sent the message with no code.
+	ErrNoTextInput = "NO_TEXT_INPUT"
 )
 
 // isSnapshotFailure reports whether err is the runner saying it could not

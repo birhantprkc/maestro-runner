@@ -972,7 +972,12 @@ extension RunnerTests {
           (command.x != nil && command.y != nil)
           ? "no text input found at the provided coordinates to clear"
           : "no focused text input to clear"
-        return Response(ok: false, error: ErrorPayload(message: message))
+        return Response(ok: false, error: ErrorPayload(code: "NO_TEXT_INPUT", message: message))
+      }
+      if text.isEmpty, let count = command.deleteCount, count > 0,
+        let erased = eraseTrailingCharacters(app: activeApp, target: target, count: count)
+      {
+        return erased
       }
     }
     let textResult = typeTextReliably(
