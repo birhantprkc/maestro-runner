@@ -557,18 +557,7 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 
 	// PasteText - use in-memory copiedText first, clipboard as fallback
 	case *flow.PasteTextStep:
-		text := fr.script.GetCopiedText()
-		if text != "" {
-			// Use stored copiedText (like Maestro does)
-			inputStep := &flow.InputTextStep{Text: text}
-			result = fr.driver.Execute(inputStep)
-			if result.Success {
-				result.Message = fmt.Sprintf("Pasted text: %s", text)
-			}
-		} else {
-			// Fallback to clipboard
-			result = fr.driver.Execute(step)
-		}
+		result = fr.executePasteText(s)
 
 	// Tap steps - apply repeat/delay/retry/settle options
 	case *flow.TapOnStep, *flow.DoubleTapOnStep, *flow.LongPressOnStep:
@@ -1387,6 +1376,20 @@ func (fr *FlowRunner) enrichTimeoutError(result *core.CommandResult) *core.Comma
 	return &enriched
 }
 
+// executePasteText pastes the text copyTextFrom saved, as Maestro does, and
+// falls back to the device clipboard when nothing was copied in this flow.
+func (fr *FlowRunner) executePasteText(step *flow.PasteTextStep) *core.CommandResult {
+	text := fr.script.GetCopiedText()
+	if text == "" {
+		return fr.driver.Execute(step)
+	}
+	result := fr.driver.Execute(&flow.InputTextStep{Text: text})
+	if result.Success {
+		result.Message = fmt.Sprintf("Pasted text: %s", text)
+	}
+	return result
+}
+
 // executeNestedStep executes a step without report tracking (for nested execution).
 func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 	start := time.Now()
@@ -1526,6 +1529,16 @@ func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
 				fr.script.SetVariable(s.Output, val)
 			}
 		}
+	// runShell and pasteText are handled here, not by the driver, exactly
+	// as at the top level. Without these cases a runShell inside a runFlow
+	// reached the driver and failed as unsupported (#174), and a pasteText
+	// pasted the device clipboard instead of the text copyTextFrom saved.
+	case *flow.RunShellStep:
+		fr.script.ExpandStep(step)
+		result = fr.executeRunShell(s)
+	case *flow.PasteTextStep:
+		fr.script.ExpandStep(step)
+		result = fr.executePasteText(s)
 	case *flow.CopyTextFromStep:
 		// Expand variables before driver execution
 		fr.script.ExpandStep(step)

@@ -625,8 +625,8 @@ func (d *Driver) Execute(step flow.Step) *core.CommandResult {
 	default:
 		result = &core.CommandResult{
 			Success: false,
-			Error:   fmt.Errorf("unknown step type: %T", step),
-			Message: fmt.Sprintf("Step type '%T' is not supported", step),
+			Error:   fmt.Errorf("unknown step type: %s", step.Type()),
+			Message: fmt.Sprintf("Step type '%s' is not supported", step.Type()),
 		}
 	}
 
