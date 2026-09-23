@@ -423,16 +423,44 @@ func countDisplayed(nodes []SnapshotNode) int {
 }
 
 func (d *Driver) handleAssertNotVisible(s *flow.AssertNotVisibleStep) *core.CommandResult {
-	nodes, err := d.snapshotMatching(s.Selector)
-	if err != nil {
-		return core.ErrorResult(err, "assertNotVisible: "+err.Error())
-	}
-	for i := range nodes {
-		if isDisplayed(&nodes[i]) {
-			return core.ErrorResult(fmt.Errorf("element unexpectedly visible"), "element visible")
+	deadline := time.Now().Add(time.Duration(d.resolveFindTimeoutMs(s.IsOptional(), s.TimeoutMs)) * time.Millisecond)
+	for firstPass := true; ; firstPass = false {
+		if !firstPass {
+			d.invalidateSnapshotCache()
+			time.Sleep(200 * time.Millisecond)
+		}
+		nodes, err := d.snapshotMatching(s.Selector)
+		if err == nil {
+			if countDisplayed(nodes) > 0 {
+				return core.ErrorResult(fmt.Errorf("element unexpectedly visible"), "element visible")
+			}
+			return core.SuccessResult("not visible", nil)
+		}
+		if !isSnapshotFailure(err) {
+			return core.ErrorResult(err, "assertNotVisible: "+err.Error())
+		}
+		// The runner could not read a tree. An app that is not in the
+		// foreground (stopped, backgrounded, suspended) shows nothing, so
+		// none of its elements is visible: that is the answer, not a
+		// failure. A foreground app that failed to answer proves nothing, so
+		// it is retried like the other snapshot callers and reported at the
+		// deadline. when:/while: notVisible run through here too.
+		if state := d.lastSnapshotAppState; appOffScreen(state) {
+			return core.SuccessResult("not visible (app "+state+")", nil)
+		}
+		if !time.Now().Before(deadline) {
+			return core.ErrorResult(err, "assertNotVisible: "+err.Error())
 		}
 	}
-	return core.SuccessResult("not visible", nil)
+}
+
+// appOffScreen reports whether an app in this state has nothing on screen.
+func appOffScreen(state string) bool {
+	switch state {
+	case "notRunning", "runningBackground", "runningBackgroundSuspended":
+		return true
+	}
+	return false
 }
 
 // handleTakeScreenshot uses simctl io booted screenshot for a host-side
@@ -1095,6 +1123,11 @@ func (d *Driver) handleWaitUntil(s *flow.WaitUntilStep) *core.CommandResult {
 			if err == nil && countDisplayed(nodes) == 0 {
 				return core.SuccessResult("not visible", nil)
 			}
+			// As in assertNotVisible: an app that is not in the foreground
+			// has nothing on screen.
+			if err != nil && appOffScreen(d.lastSnapshotAppState) {
+				return core.SuccessResult("not visible (app "+d.lastSnapshotAppState+")", nil)
+			}
 		}
 		if !time.Now().Before(deadline) {
 			return core.ErrorResult(fmt.Errorf("extendedWaitUntil timed out after %s", timeout),
@@ -1332,6 +1365,10 @@ func (d *Driver) fetchSnapshot() ([]SnapshotNode, error) {
 		Command:     CmdSnapshot,
 		AppBundleID: d.appID,
 	})
+	d.lastSnapshotAppState = ""
+	if data != nil {
+		d.lastSnapshotAppState = data.AppState
+	}
 	if err != nil {
 		return nil, err
 	}

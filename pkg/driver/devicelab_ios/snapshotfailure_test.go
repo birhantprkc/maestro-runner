@@ -180,14 +180,18 @@ func TestAssertVisibleCountSnapshotFailure(t *testing.T) {
 }
 
 // TestWaitUntilNotVisibleSnapshotFailure: "not visible" is only concluded from
-// a snapshot that was actually read.
+// a snapshot that was actually read, or from an app that is not in the
+// foreground and so has nothing on screen.
 func TestWaitUntilNotVisibleSnapshotFailure(t *testing.T) {
+	foregroundFailed := `{"ok":false,"data":{"appState":"runningForeground"},` +
+		`"error":{"code":"SNAPSHOT_FAILED","message":"accessibility snapshot failed or timed out"}}`
 	tests := []struct {
 		name        string
 		bodyFn      func(int64) string
 		wantSuccess bool
 	}{
-		{"never readable times out", always(snapFailedBody), false},
+		{"foreground never readable times out", always(foregroundFailed), false},
+		{"suspended app passes", always(snapFailedBody), true},
 		{"readable later passes", failFirst(1, snapEmptyBody), true},
 		{"still visible times out", always(snapRowBody), false},
 		{"other runner error fails", always(`{"ok":false,"error":{"code":"X","message":"boom"}}`), false},
@@ -204,21 +208,33 @@ func TestWaitUntilNotVisibleSnapshotFailure(t *testing.T) {
 	}
 }
 
-// TestAssertNotVisibleSnapshotFailure: an unreadable screen is an error, not a
-// pass. Older runners sent an empty tree here, which asserted absence falsely.
+// TestAssertNotVisibleSnapshotFailure: an unreadable screen from an app in the
+// foreground is an error, not a pass — older runners sent an empty tree here,
+// which asserted absence falsely. An app that is not in the foreground has
+// nothing on screen, so absence is the true answer there (stopApp, then
+// assertNotVisible, or when: notVisible after pressKey: home).
 func TestAssertNotVisibleSnapshotFailure(t *testing.T) {
+	failedIn := func(state string) string {
+		return `{"ok":false,"data":{"appState":"` + state + `"},` +
+			`"error":{"code":"SNAPSHOT_FAILED","message":"accessibility snapshot failed or timed out"}}`
+	}
 	tests := []struct {
 		name        string
 		body        string
 		wantSuccess bool
 	}{
-		{"unreadable fails", snapFailedBody, false},
+		{"unreadable foreground app fails", failedIn("runningForeground"), false},
+		{"unreadable with no app state fails", failedIn(""), false},
+		{"stopped app passes", failedIn("notRunning"), true},
+		{"backgrounded app passes", failedIn("runningBackground"), true},
+		{"suspended app passes", snapFailedBody, true},
 		{"read and absent passes", snapEmptyBody, true},
 		{"read and present fails", snapRowBody, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := scriptedDriver(t, always(tt.body))
+			d.findTimeout = 300
 			res := d.handleAssertNotVisible(&flow.AssertNotVisibleStep{Selector: flow.Selector{ID: "row"}})
 			if res.Success != tt.wantSuccess {
 				t.Errorf("success=%v (%s), want %v", res.Success, res.Message, tt.wantSuccess)

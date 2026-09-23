@@ -55,6 +55,9 @@ type Driver struct {
 	// step so the cache never lags real screen state.
 	snapshotCache     []SnapshotNode
 	snapshotCacheTime time.Time
+	// lastSnapshotAppState is the target app's state from the most recent
+	// snapshot reply, including a SNAPSHOT_FAILED one, which carries it.
+	lastSnapshotAppState string
 
 	// Runtime — owned by setup.go; the Driver only reads it for orderly
 	// shutdown.
