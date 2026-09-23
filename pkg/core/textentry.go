@@ -87,6 +87,20 @@ func VerifyTypedText(typed, before, after string, readOK bool) TextEntryVerdict 
 	return TextEntryTransformed
 }
 
+// keptBeforeTyping is the part of the field that was there before typing and
+// must survive a clear-and-retype. before is only real text when the partial
+// value still starts with it: typing appends, so a real value stays in front,
+// while a hint an empty field reported is replaced by the first keystroke.
+// Nothing is kept when that cannot be told apart — the typed text itself
+// starts with before — or when before is masked, since bullets are not the
+// characters behind them.
+func keptBeforeTyping(typed, before, after string) string {
+	if before == "" || isMasked(before) || strings.HasPrefix(typed, before) || !strings.HasPrefix(after, before) {
+		return ""
+	}
+	return before
+}
+
 // maskCharacters are what the platforms substitute for a secure field's real
 // value: the bullet iOS and Android report, and the asterisk some custom
 // controls use.
@@ -160,7 +174,9 @@ func ConfirmTypedText(field TextField, typed, before string, warn func(format st
 		// leave the field worse than it started.
 		return " (warning: characters were dropped and the field could not be cleared to retry)"
 	}
-	if inputErr := field.Input(typed); inputErr != nil {
+	// The clear takes the whole field, including anything it held before
+	// this step typed into it, so that goes back in with the retype.
+	if inputErr := field.Input(keptBeforeTyping(typed, before, after) + typed); inputErr != nil {
 		return " (warning: characters were dropped and retyping failed)"
 	}
 
