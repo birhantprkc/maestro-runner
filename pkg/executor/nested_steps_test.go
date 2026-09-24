@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/devicelab-dev/maestro-runner/pkg/core"
@@ -135,5 +136,39 @@ func TestPasteTextInsideRunFlowUsesCopiedText(t *testing.T) {
 	}
 	if typed != "copied-123" {
 		t.Errorf("typed %q, want the text copyTextFrom saved", typed)
+	}
+}
+
+// A step inside repeat expands ${...} afresh on every pass. Expansion used to
+// rewrite the shared step, so the first pass's value was baked in and every
+// later pass typed it again (duckduckgo/Android's autofill suite).
+func TestRepeatExpandsStepsEachPass(t *testing.T) {
+	var typed []string
+	driver := &mockDriver{executeFunc: func(step flow.Step) *core.CommandResult {
+		if in, ok := step.(*flow.InputTextStep); ok {
+			typed = append(typed, in.Text)
+		}
+		return &core.CommandResult{Success: true}
+	}}
+	result := runOneFlow(t, driver, flow.Flow{
+		SourcePath: "test.yaml",
+		Config:     flow.Config{Name: "repeat expands"},
+		Steps: []flow.Step{
+			&flow.EvalScriptStep{BaseStep: flow.BaseStep{StepType: flow.StepEvalScript}, Script: "${output.d = ['a','b','c']; output.i = 0}"},
+			&flow.RepeatStep{
+				BaseStep: flow.BaseStep{StepType: flow.StepRepeat},
+				Times:    "3",
+				Steps: []flow.Step{
+					&flow.InputTextStep{BaseStep: flow.BaseStep{StepType: flow.StepInputText}, Text: "${output.d[output.i]}"},
+					&flow.EvalScriptStep{BaseStep: flow.BaseStep{StepType: flow.StepEvalScript}, Script: "${output.i++}"},
+				},
+			},
+		},
+	})
+	if result.Status != report.StatusPassed {
+		t.Fatalf("Status = %v", result.Status)
+	}
+	if got := strings.Join(typed, ","); got != "a,b,c" {
+		t.Errorf("typed %q, want a,b,c", got)
 	}
 }

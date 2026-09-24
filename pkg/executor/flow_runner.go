@@ -397,7 +397,9 @@ func (fr *FlowRunner) executeStep(idx int, step flow.Step) (report.Status, strin
 		artifacts = fr.captureArtifacts(idx, "before", false)
 	}
 
-	// Expand variables in step before execution
+	// Expand variables in a copy: the flow keeps the ${...} template for the
+	// next time this step runs (a count: rerun reuses the parsed flow).
+	step = cloneForRun(step)
 	fr.script.ExpandStep(step)
 
 	// Execute step - route to appropriate handler
@@ -1392,6 +1394,7 @@ func (fr *FlowRunner) executePasteText(step *flow.PasteTextStep) *core.CommandRe
 
 // executeNestedStep executes a step without report tracking (for nested execution).
 func (fr *FlowRunner) executeNestedStep(step flow.Step) *core.CommandResult {
+	step = cloneForRun(step)
 	start := time.Now()
 	var result *core.CommandResult
 	// Describe before expansion. Top-level commands are described when the
