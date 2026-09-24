@@ -39,7 +39,13 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 		return errorResult(err, fmt.Sprintf("Element not found: %s", step.Selector.Describe()))
 	}
 
-	cx, cy := info.Bounds.Center()
+	// `point` with a selector is relative to the element ("90%,50%" is near its
+	// right edge), as Maestro documents and every other driver does. Tapping
+	// the centre instead hit the row, not the switch at its edge (#175).
+	cx, cy, perr := core.PointInBounds(step.Point, info.Bounds)
+	if perr != nil {
+		return errorResult(perr, fmt.Sprintf("Invalid point coordinates: %v", perr))
+	}
 
 	// If duration is set (or longPress: true), hold the press for that long.
 	if step.DurationMs > 0 || step.LongPress {
@@ -57,6 +63,10 @@ func (d *Driver) tapOn(step *flow.TapOnStep) *core.CommandResult {
 	// to atomically focus + type (bypasses keyboard focus timing issues).
 	if d.platform == "ios" && info.ID != "" {
 		d.lastTappedElementID = info.ID
+	}
+	// A point inside the element needs the coordinate tap below: an element
+	// click always lands on the element's centre.
+	if d.platform == "ios" && info.ID != "" && step.Point == "" {
 		// Use ClickElement (POST /element/{id}/click) instead of coordinate tap.
 		// Coordinate taps via W3C pointer actions are unreliable on iOS: they can miss
 		// if the keyboard is animating, or if the element is partially obscured.
