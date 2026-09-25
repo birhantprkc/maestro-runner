@@ -16,9 +16,9 @@ import (
 // autofill suite). Each execution now expands its own copy, and the flow keeps
 // the ${...} template.
 //
-// Maps and slices of values are copied too, since expansion rewrites env maps
-// and path lists element by element. Nested steps are not: each one is copied
-// when it runs.
+// Maps, slices of values and pointed-to structs (conditions, selectors) are
+// copied too, since expansion rewrites them in place. Nested steps are not:
+// each one is copied when it runs.
 func cloneForRun(step flow.Step) flow.Step {
 	v := reflect.ValueOf(step)
 	if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
@@ -61,6 +61,17 @@ func copyContainers(v reflect.Value) {
 			s := reflect.MakeSlice(f.Type(), f.Len(), f.Len())
 			reflect.Copy(s, f)
 			f.Set(s)
+		case reflect.Pointer:
+			// A condition or selector held by pointer is rewritten in place
+			// by expansion too (`when: true: ${output.attempt > 0}` inside
+			// a retry was baked to "false" on the first attempt, #176).
+			if f.IsNil() || f.Elem().Kind() != reflect.Struct || f.Type().Implements(stepInterface) {
+				continue
+			}
+			p := reflect.New(f.Elem().Type())
+			p.Elem().Set(f.Elem())
+			copyContainers(p.Elem())
+			f.Set(p)
 		case reflect.Struct:
 			copyContainers(f)
 		}

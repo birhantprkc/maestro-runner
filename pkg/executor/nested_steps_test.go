@@ -172,3 +172,37 @@ func TestRepeatExpandsStepsEachPass(t *testing.T) {
 		t.Errorf("typed %q, want a,b,c", got)
 	}
 }
+
+// A runFlow condition inside a retry is expanded afresh on every attempt, so
+// it sees the output an earlier attempt changed (#176).
+func TestRetryReevaluatesRunFlowCondition(t *testing.T) {
+	cond := &flow.Condition{Script: "${output.attempt > 0}"}
+	result := runOneFlow(t, &mockDriver{}, flow.Flow{
+		SourcePath: "test.yaml",
+		Config:     flow.Config{Name: "retry condition"},
+		Steps: []flow.Step{
+			&flow.EvalScriptStep{BaseStep: flow.BaseStep{StepType: flow.StepEvalScript}, Script: "${output.attempt = 0; output.recoveryRan = false}"},
+			&flow.RetryStep{
+				BaseStep:   flow.BaseStep{StepType: flow.StepRetry},
+				MaxRetries: "2",
+				Steps: []flow.Step{
+					&flow.RunFlowStep{
+						BaseStep: flow.BaseStep{StepType: flow.StepRunFlow},
+						When:     cond,
+						Steps: []flow.Step{
+							&flow.EvalScriptStep{BaseStep: flow.BaseStep{StepType: flow.StepEvalScript}, Script: "${output.recoveryRan = true}"},
+						},
+					},
+					&flow.EvalScriptStep{BaseStep: flow.BaseStep{StepType: flow.StepEvalScript}, Script: "${output.attempt += 1}"},
+					&flow.AssertTrueStep{BaseStep: flow.BaseStep{StepType: flow.StepAssertTrue}, Script: "${output.recoveryRan}"},
+				},
+			},
+		},
+	})
+	if result.Status != report.StatusPassed {
+		t.Errorf("Status = %v, want passed: the second attempt should run the recovery branch", result.Status)
+	}
+	if cond.Script != "${output.attempt > 0}" {
+		t.Errorf("condition rewritten in the flow: %q", cond.Script)
+	}
+}
